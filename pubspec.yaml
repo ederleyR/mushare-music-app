@@ -1,0 +1,81 @@
+name: mushare
+description: "Reproductor de música offline con transmisión en red local"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # --- Gestión de Estado ---
+  flutter_riverpod: ^2.5.1
+  riverpod_annotation: ^2.3.5      # Para generación de código con @riverpod
+  google_fonts: ^6.2.1
+  # --- Base de Datos Local ---
+  drift: ^2.20.3
+  sqlite3_flutter_libs: ^0.5.24
+  path_provider: ^2.1.4
+  path: ^1.9.0
+  shared_preferences: ^2.3.2
+
+  # --- Reproducción de Audio ---
+  just_audio: ^0.9.42
+  audio_service: ^0.18.15
+  just_audio_background: ^0.0.1-beta.13
+  media_kit: ^1.2.5
+  media_kit_libs_android_audio: ^1.3.7
+  media_kit_libs_windows_audio: ^1.0.9
+
+  # --- Metadatos y Escaneo de Archivos ---
+  on_audio_query: ^2.9.0
+  file_picker: ^8.1.2
+  audiotags: ^1.3.0
+  permission_handler: ^11.3.1
+
+  # --- Red Local / Streaming ---
+  shelf: ^1.4.1
+  shelf_router: ^1.1.4
+  multicast_dns: ^0.3.2+7
+  http: ^1.2.2
+
+  # --- Inyección de dependencias ---
+  get_it: ^7.7.0
+
+  # --- Navegación ---
+  go_router: ^14.2.7
+
+  # --- Compartir por Bluetooth / apps del sistema ---
+  share_plus: ^11.0.0
+
+  # --- Utilidades UI ---
+  cached_network_image: ^3.4.1
+  palette_generator: ^0.3.3+4
+  flutter_svg: ^2.0.10
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_launcher_icons: ^0.13.1
+  build_runner: ^2.4.13
+  drift_dev: ^2.20.3
+  riverpod_generator: ^2.4.3
+  flutter_lints: ^4.0.0
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icons/mushare icon.png"
+  windows:
+    generate: true
+    image_path: "assets/icons/mushare icon.png"
+    icon_size: 256
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/
