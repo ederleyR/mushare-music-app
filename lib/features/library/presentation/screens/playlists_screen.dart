@@ -1,7 +1,11 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:palette_generator/palette_generator.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/entities/playlist.dart';
@@ -18,8 +22,8 @@ class PlaylistsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final playlists = ref.watch(playlistsStreamProvider);
-    final favorites = ref.watch(favoritesStreamProvider).valueOrNull ??
-        const <SongEntity>[];
+    final favorites =
+        ref.watch(favoritesStreamProvider).valueOrNull ?? const <SongEntity>[];
     return Scaffold(
       appBar: AppBar(
         title: const Text('Playlists'),
@@ -62,8 +66,36 @@ class PlaylistsScreen extends ConsumerWidget {
                     virtualSongs: List.unmodifiable(entry.value),
                   ))
               .toList()
-            ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-          if (visibleItems.isEmpty && artistItems.isEmpty) {
+            ..sort(
+                (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          final albumGroups = <String, List<SongEntity>>{};
+          for (final song in allSongs) {
+            final album = song.album.trim();
+            final artist = song.artist.trim();
+            if (album.isEmpty || album.toLowerCase() == 'desconocido') continue;
+            final groupKey = '${artist.toLowerCase()}::$album';
+            (albumGroups[groupKey] ??= []).add(song);
+          }
+          final albumItems = albumGroups.entries
+              .where((entry) => entry.value.length >= 2)
+              .map((entry) {
+            final songs = entry.value;
+            final firstSong = songs.first;
+            return PlaylistEntity(
+              id: -200000 - entry.key.hashCode.abs(),
+              name: firstSong.album.trim(),
+              coverPath: songs
+                  .map((song) => song.artworkPath)
+                  .firstWhere((path) => path != null, orElse: () => null),
+              createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+              virtualSongs: List.unmodifiable(songs),
+            );
+          }).toList()
+            ..sort(
+                (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          if (visibleItems.isEmpty &&
+              artistItems.isEmpty &&
+              albumItems.isEmpty) {
             return const Center(child: Text('Aún no has creado playlists.'));
           }
           return LayoutBuilder(
@@ -74,13 +106,25 @@ class PlaylistsScreen extends ConsumerWidget {
                 children: [
                   if (visibleItems.isNotEmpty) ...[
                     const _PlaylistSectionTitle(title: 'Mis playlists'),
-                    _PlaylistGrid(items: visibleItems, columns: columns,
+                    _PlaylistGrid(
+                        items: visibleItems,
+                        columns: columns,
                         onOpenPlaylist: onOpenPlaylist),
                   ],
                   if (artistItems.isNotEmpty) ...[
                     const SizedBox(height: 28),
                     const _PlaylistSectionTitle(title: 'Artistas'),
-                    _PlaylistGrid(items: artistItems, columns: columns,
+                    _PlaylistGrid(
+                        items: artistItems,
+                        columns: columns,
+                        onOpenPlaylist: onOpenPlaylist),
+                  ],
+                  if (albumItems.isNotEmpty) ...[
+                    const SizedBox(height: 28),
+                    const _PlaylistSectionTitle(title: 'Álbumes'),
+                    _PlaylistGrid(
+                        items: albumItems,
+                        columns: columns,
                         onOpenPlaylist: onOpenPlaylist),
                   ],
                 ],
@@ -93,29 +137,115 @@ class PlaylistsScreen extends ConsumerWidget {
   }
 
   Future<void> _createPlaylist(BuildContext context, WidgetRef ref) async {
-    final controller = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Nueva playlist'),
-        content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: 'Nombre')),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar')),
-          FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim()),
-              child: const Text('Crear')),
-        ],
-      ),
-    );
-    if (name != null && name.isNotEmpty) {
-      await ref.read(libraryRepositoryProvider).createPlaylist(name);
+    final result = await _showPlaylistEditor(context, title: 'Nueva playlist');
+    if (result != null && result.name.isNotEmpty) {
+      await ref
+          .read(libraryRepositoryProvider)
+          .createPlaylist(result.name, coverPath: result.coverPath);
     }
   }
+}
+
+Future<({String name, String? coverPath})?> _showPlaylistEditor(
+  BuildContext context, {
+  required String title,
+  String initialName = '',
+  String? initialCoverPath,
+}) async {
+  final controller = TextEditingController(text: initialName);
+  final result = await showDialog<({String name, String? coverPath})>(
+    context: context,
+    builder: (context) {
+      var coverPath = initialCoverPath;
+      return StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+          title: Row(
+            children: [
+              Icon(Icons.queue_music_rounded,
+                  color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 10),
+              Text(title),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: true,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: const InputDecoration(
+                  labelText: 'Nombre de la playlist',
+                  prefixIcon: Icon(Icons.title_rounded),
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.tonalIcon(
+                onPressed: () async {
+                  final selected = await _pickAndStorePlaylistCover();
+                  if (selected != null) setState(() => coverPath = selected);
+                },
+                icon: const Icon(Icons.add_photo_alternate_outlined),
+                label: Text(
+                    coverPath == null ? 'Elegir portada' : 'Cambiar portada'),
+              ),
+              if (coverPath != null) ...[
+                const SizedBox(height: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Image.file(File(coverPath!),
+                      width: 140, height: 140, fit: BoxFit.cover),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, (
+                name: controller.text.trim(),
+                coverPath: coverPath,
+              )),
+              child: Text(title == 'Nueva playlist' ? 'Crear' : 'Guardar'),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+  controller.dispose();
+  return result;
+}
+
+Future<String?> _pickAndStorePlaylistCover() async {
+  final result = await FilePicker.platform.pickFiles(
+    type: FileType.image,
+    withData: true,
+    dialogTitle: 'Selecciona una portada',
+  );
+  if (result == null || result.files.isEmpty) return null;
+
+  final picked = result.files.single;
+  final directory = Directory(p.join(
+      (await getApplicationDocumentsDirectory()).path, 'playlist_covers'));
+  await directory.create(recursive: true);
+  final extension =
+      p.extension(picked.name).isEmpty ? '.jpg' : p.extension(picked.name);
+  final target = File(p.join(
+      directory.path, '${DateTime.now().microsecondsSinceEpoch}$extension'));
+  if (picked.path != null) {
+    await File(picked.path!).copy(target.path);
+  } else if (picked.bytes != null) {
+    await target.writeAsBytes(picked.bytes!);
+  } else {
+    return null;
+  }
+  return target.path;
 }
 
 class _PlaylistSectionTitle extends StatelessWidget {
@@ -125,13 +255,16 @@ class _PlaylistSectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 14),
-    child: Text(title, style: Theme.of(context).textTheme.headlineSmall),
-  );
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Text(title, style: Theme.of(context).textTheme.headlineSmall),
+      );
 }
 
 class _PlaylistGrid extends StatelessWidget {
-  const _PlaylistGrid({required this.items, required this.columns, required this.onOpenPlaylist});
+  const _PlaylistGrid(
+      {required this.items,
+      required this.columns,
+      required this.onOpenPlaylist});
 
   final List<PlaylistEntity> items;
   final int columns;
@@ -139,17 +272,17 @@ class _PlaylistGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => GridView.builder(
-    shrinkWrap: true,
-    physics: const NeverScrollableScrollPhysics(),
-    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-    crossAxisCount: columns,
-    childAspectRatio: .9,
-    crossAxisSpacing: 16,
-    mainAxisSpacing: 16),
-    itemCount: items.length,
-    itemBuilder: (context, index) => _PlaylistCard(
-      playlist: items[index], onOpenPlaylist: onOpenPlaylist),
-  );
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            childAspectRatio: .9,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16),
+        itemCount: items.length,
+        itemBuilder: (context, index) => _PlaylistCard(
+            playlist: items[index], onOpenPlaylist: onOpenPlaylist),
+      );
 }
 
 class _PlaylistCard extends ConsumerWidget {
@@ -160,33 +293,55 @@ class _PlaylistCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final songs = playlist.virtualSongs.isNotEmpty
-      ? playlist.virtualSongs
-      : (playlist.isFavorites
-                ? ref.watch(favoritesStreamProvider)
-                : ref.watch(playlistSongsStreamProvider(playlist.id)))
-            .valueOrNull ??
-        const <SongEntity>[];
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: () => onOpenPlaylist(playlist),
-      child: Column(children: [
-        Expanded(
-          child: playlist.isFavorites
-              ? const _FavoritesArtwork()
-              : _PlaylistArtwork(songs: songs),
+        ? playlist.virtualSongs
+        : (playlist.isFavorites
+                    ? ref.watch(favoritesStreamProvider)
+                    : ref.watch(playlistSongsStreamProvider(playlist.id)))
+                .valueOrNull ??
+            const <SongEntity>[];
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 2,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: InkWell(
+        onTap: () => onOpenPlaylist(playlist),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 6, 4),
+          child: Column(children: [
+            Expanded(
+              child: playlist.isFavorites
+                  ? const _FavoritesArtwork()
+                  : _PlaylistArtwork(playlist: playlist, songs: songs),
+            ),
+            const SizedBox(height: 6),
+            Row(children: [
+              Expanded(
+                  child: Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Text(playlist.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+              )),
+              if (!playlist.isFavorites && playlist.virtualSongs.isEmpty)
+                IconButton(
+                    tooltip: 'Editar playlist',
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.edit_outlined, size: 20),
+                    onPressed: () => _editPlaylist(context, ref)),
+              if (!playlist.isFavorites && playlist.virtualSongs.isEmpty)
+                IconButton(
+                    tooltip: 'Eliminar playlist',
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                    onPressed: () => _confirmDelete(context, ref))
+            ]),
+          ]),
         ),
-        const SizedBox(height: 8),
-        Row(children: [
-          Expanded(
-              child: Text(playlist.name,
-                  maxLines: 1, overflow: TextOverflow.ellipsis)),
-          if (!playlist.isFavorites && playlist.virtualSongs.isEmpty)
-            IconButton(
-              tooltip: 'Eliminar playlist',
-              icon: const Icon(Icons.delete_outline),
-              onPressed: () => _confirmDelete(context, ref))
-        ]),
-      ]),
+      ),
     );
   }
 
@@ -210,14 +365,37 @@ class _PlaylistCard extends ConsumerWidget {
       await ref.read(libraryRepositoryProvider).deletePlaylist(playlist.id);
     }
   }
+
+  Future<void> _editPlaylist(BuildContext context, WidgetRef ref) async {
+    final result = await _showPlaylistEditor(
+      context,
+      title: 'Editar playlist',
+      initialName: playlist.name,
+      initialCoverPath: playlist.coverPath,
+    );
+    if (result == null || result.name.isEmpty) return;
+    await ref.read(libraryRepositoryProvider).updatePlaylist(
+          playlist.id,
+          result.name,
+          result.coverPath,
+        );
+  }
 }
 
 class _PlaylistArtwork extends StatelessWidget {
-  const _PlaylistArtwork({required this.songs});
+  const _PlaylistArtwork({required this.playlist, required this.songs});
+  final PlaylistEntity playlist;
   final List<SongEntity> songs;
 
   @override
   Widget build(BuildContext context) {
+    if (playlist.coverPath != null && File(playlist.coverPath!).existsSync()) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Image.file(File(playlist.coverPath!),
+            width: double.infinity, fit: BoxFit.cover),
+      );
+    }
     if (songs.isEmpty) {
       return Container(
         width: double.infinity,
@@ -242,7 +420,7 @@ class _PlaylistArtwork extends StatelessWidget {
           final song = index < songs.length ? songs[index] : null;
           return song != null && song.artworkPath != null
               ? Image.file(File(song.artworkPath!), fit: BoxFit.cover)
-              : _ThemedFallbackArtwork();
+              : const _ThemedFallbackArtwork();
         },
       ),
     );
@@ -259,7 +437,8 @@ class _FavoritesArtwork extends StatelessWidget {
           gradient: AppTheme.primaryGradient(context),
           borderRadius: BorderRadius.circular(16),
         ),
-        child: const Icon(Icons.favorite_rounded, size: 58, color: Colors.white),
+        child:
+            const Icon(Icons.favorite_rounded, size: 58, color: Colors.white),
       );
 }
 
@@ -273,6 +452,199 @@ class _ThemedFallbackArtwork extends StatelessWidget {
         ),
         child: const Icon(Icons.music_note_rounded, color: Colors.white),
       );
+}
+
+class _PlaylistHeroHeader extends StatelessWidget {
+  const _PlaylistHeroHeader({
+    required this.playlist,
+    required this.songs,
+    required this.onPlay,
+    required this.onShuffle,
+  });
+
+  final PlaylistEntity playlist;
+  final List<SongEntity> songs;
+  final VoidCallback? onPlay;
+  final VoidCallback? onShuffle;
+
+  @override
+  Widget build(BuildContext context) {
+    final artworkPath = playlist.coverPath ??
+        songs
+            .map((song) => song.artworkPath)
+            .firstWhere((path) => path != null, orElse: () => null);
+    final isVirtual = playlist.virtualSongs.isNotEmpty;
+    final typeLabel = playlist.isFavorites
+        ? 'Playlist de canciones favoritas'
+        : isVirtual
+            ? 'Colección automática'
+            : 'Playlist';
+    return _PlaylistHeroPalette(
+      artworkPath: artworkPath,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(24, 10, 24, 18),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 560;
+            final artwork = _DetailArtwork(
+              path: artworkPath,
+              isFavorites: playlist.isFavorites,
+              size: compact ? 178 : 214,
+            );
+            final details = Column(
+              crossAxisAlignment: compact
+                  ? CrossAxisAlignment.center
+                  : CrossAxisAlignment.start,
+              children: [
+                Text(typeLabel,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                const SizedBox(height: 6),
+                Text(playlist.name,
+                    textAlign: compact ? TextAlign.center : TextAlign.start,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context)
+                        .textTheme
+                        .displaySmall
+                        ?.copyWith(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                Text('${songs.length} canciones',
+                    style: Theme.of(context).textTheme.bodyMedium),
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                  onPressed: onPlay,
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('Reproducir'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: onShuffle,
+                  icon: const Icon(Icons.shuffle_rounded),
+                  label: const Text('Aleatorio'),
+                ),
+              ],
+            );
+            return compact
+                ? Column(
+                    children: [artwork, const SizedBox(height: 18), details])
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      artwork,
+                      const SizedBox(width: 24),
+                      Expanded(child: details),
+                    ],
+                  );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _PlaylistHeroPalette extends StatefulWidget {
+  const _PlaylistHeroPalette({required this.artworkPath, required this.child});
+
+  final String? artworkPath;
+  final Widget child;
+
+  @override
+  State<_PlaylistHeroPalette> createState() => _PlaylistHeroPaletteState();
+}
+
+class _PlaylistHeroPaletteState extends State<_PlaylistHeroPalette> {
+  Color? _dominant;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPalette();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PlaylistHeroPalette oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.artworkPath != widget.artworkPath) _loadPalette();
+  }
+
+  void _loadPalette() {
+    final path = widget.artworkPath;
+    if (path == null || !File(path).existsSync()) {
+      if (mounted) setState(() => _dominant = null);
+      return;
+    }
+    Future<void>(() async {
+      final palette = await PaletteGenerator.fromImageProvider(
+        ResizeImage(FileImage(File(path)), width: 64, height: 64),
+        maximumColorCount: 12,
+      );
+      if (mounted && widget.artworkPath == path) {
+        setState(() => _dominant = palette.dominantColor?.color);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = _dominant ?? Theme.of(context).colorScheme.primaryContainer;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 500),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color.lerp(base, Colors.black, .25)!,
+            Color.lerp(base, Theme.of(context).scaffoldBackgroundColor, .82)!,
+          ],
+        ),
+      ),
+      child: widget.child,
+    );
+  }
+}
+
+class _DetailArtwork extends StatelessWidget {
+  const _DetailArtwork({
+    required this.path,
+    required this.isFavorites,
+    required this.size,
+  });
+
+  final String? path;
+  final bool isFavorites;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasArtwork = path != null && File(path!).existsSync();
+    return Material(
+      elevation: 10,
+      shadowColor: Colors.black54,
+      borderRadius: BorderRadius.circular(8),
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: hasArtwork
+            ? Image.file(File(path!), fit: BoxFit.cover)
+            : Container(
+                decoration: BoxDecoration(
+                  gradient: AppTheme.primaryGradient(context),
+                ),
+                child: Icon(
+                  isFavorites
+                      ? Icons.favorite_rounded
+                      : Icons.queue_music_rounded,
+                  size: size * .3,
+                  color: Colors.white,
+                ),
+              ),
+      ),
+    );
+  }
 }
 
 class PlaylistDetailScreen extends ConsumerStatefulWidget {
@@ -296,80 +668,115 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
   Widget build(BuildContext context) {
     final playlist = widget.playlist;
     final playlistSongs = playlist.virtualSongs.isNotEmpty
-      ? AsyncValue.data(playlist.virtualSongs)
-      : playlist.isFavorites
-        ? ref.watch(favoritesStreamProvider)
-        : ref.watch(playlistSongsStreamProvider(playlist.id));
+        ? AsyncValue.data(playlist.virtualSongs)
+        : playlist.isFavorites
+            ? ref.watch(favoritesStreamProvider)
+            : ref.watch(playlistSongsStreamProvider(playlist.id));
     final allSongs =
         ref.watch(songsStreamProvider).valueOrNull ?? const <SongEntity>[];
     final player = ref.watch(playerProvider);
     return Scaffold(
-      appBar: AppBar(title: Text(playlist.name), actions: [
+      appBar: AppBar(title: const Text(''), actions: [
         if (!playlist.isFavorites && playlist.virtualSongs.isEmpty)
           IconButton(
-            tooltip: 'Agregar canciones',
-            icon: const Icon(Icons.library_add_rounded),
-            onPressed: () => _pickSong(context, ref, allSongs)),
+              tooltip: 'Agregar canciones',
+              icon: const Icon(Icons.library_add_rounded),
+              onPressed: () => _pickSong(context, ref, allSongs)),
         IconButton(
           tooltip: 'Cerrar playlist',
           icon: const Icon(Icons.close_rounded),
           onPressed: widget.onClose,
         ),
       ]),
-      body: Column(children: [
-        if (_selectedSongIds.isNotEmpty &&
-          !playlist.isFavorites &&
-          playlist.virtualSongs.isEmpty)
-          _PlaylistSelectionActions(
-            count: _selectedSongIds.length,
-            onCancel: () => setState(_selectedSongIds.clear),
-            onRemove: () => _confirmRemoveSelected(playlist),
-          ),
-        Expanded(child: playlistSongs.when(
+      body: playlistSongs.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => Center(child: Text('Error: $error')),
         data: (songs) => songs.isEmpty
-            ? const Center(child: Text('Esta playlist está vacía.'))
-            : ListView.builder(
-                itemCount: songs.length,
-                itemBuilder: (context, index) {
-                  final song = songs[index];
-                  return SongTile(
-                      song: song,
-                      isSelected: song.id != null && _selectedSongIds.contains(song.id),
+            ? Column(
+                children: [
+                  _PlaylistHeroHeader(
+                    playlist: playlist,
+                    songs: songs,
+                    onPlay: null,
+                    onShuffle: null,
+                  ),
+                  const Expanded(
+                      child: Center(child: Text('Esta playlist está vacía.'))),
+                ],
+              )
+            : Column(
+                children: [
+                  _PlaylistHeroHeader(
+                    playlist: playlist,
+                    songs: songs,
+                    onPlay: () => _playAll(songs),
+                    onShuffle: () => _playShuffled(songs),
+                  ),
+                  if (_selectedSongIds.isNotEmpty &&
+                      !playlist.isFavorites &&
+                      playlist.virtualSongs.isEmpty)
+                    _PlaylistSelectionActions(
+                      count: _selectedSongIds.length,
+                      onCancel: () => setState(_selectedSongIds.clear),
+                      onRemove: () => _confirmRemoveSelected(playlist),
+                    ),
+                  Expanded(
+                    child: ListView.builder(
+                      padding: const EdgeInsets.only(top: 6, bottom: 20),
+                      itemCount: songs.length,
+                      itemBuilder: (context, index) {
+                        final song = songs[index];
+                        return SongTile(
+                            song: song,
+                            isSelected: song.id != null &&
+                                _selectedSongIds.contains(song.id),
                             onLongPress: playlist.isFavorites ||
-                              playlist.virtualSongs.isNotEmpty ||
-                              song.id == null
-                          ? null
-                          : () => _toggleSelected(song.id!),
-                      isPlaying: player.isPlaying &&
-                          player.currentSong?.filePath == song.filePath,
-                      onTap: () async {
-                        if (!playlist.isFavorites &&
-                          playlist.virtualSongs.isEmpty &&
-                            _selectedSongIds.isNotEmpty &&
-                            song.id != null) {
-                          _toggleSelected(song.id!);
-                          return;
-                        }
-                        if (song.id != null) {
-                          await ref
-                              .read(libraryRepositoryProvider)
-                              .incrementPlayCount(song.id!);
-                        }
-                        await ref
-                            .read(playerProvider.notifier)
-                            .playSong(song, songs);
-                      },
+                                    playlist.virtualSongs.isNotEmpty ||
+                                    song.id == null
+                                ? null
+                                : () => _toggleSelected(song.id!),
+                            isPlaying: player.isPlaying &&
+                                player.currentSong?.filePath == song.filePath,
+                            onTap: () async {
+                              if (!playlist.isFavorites &&
+                                  playlist.virtualSongs.isEmpty &&
+                                  _selectedSongIds.isNotEmpty &&
+                                  song.id != null) {
+                                _toggleSelected(song.id!);
+                                return;
+                              }
+                              if (song.id != null) {
+                                await ref
+                                    .read(libraryRepositoryProvider)
+                                    .incrementPlayCount(song.id!);
+                              }
+                              await ref
+                                  .read(playerProvider.notifier)
+                                  .playSong(song, songs);
+                            },
                             onDeleteTap: playlist.isFavorites ||
-                              playlist.virtualSongs.isNotEmpty ||
-                              song.id == null
-                          ? null
-                          : () => _confirmRemoveOne(playlist, song));
-                }),
-      )),
-      ]),
+                                    playlist.virtualSongs.isNotEmpty ||
+                                    song.id == null
+                                ? null
+                                : () => _confirmRemoveOne(playlist, song));
+                      },
+                    ),
+                  ),
+                ],
+              ),
+      ),
     );
+  }
+
+  Future<void> _playAll(List<SongEntity> songs) async {
+    if (songs.isEmpty) return;
+    await ref.read(playerProvider.notifier).playSong(songs.first, songs);
+  }
+
+  Future<void> _playShuffled(List<SongEntity> songs) async {
+    if (songs.isEmpty) return;
+    final shuffled = List<SongEntity>.of(songs)..shuffle();
+    await ref.read(playerProvider.notifier).playSong(shuffled.first, shuffled);
   }
 
   void _toggleSelected(int id) {
@@ -386,13 +793,18 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
         title: const Text('Quitar de la playlist'),
         content: Text('¿Quitar "${song.title}" de "${playlist.name}"?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Quitar')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Quitar')),
         ],
       ),
     );
     if (confirmed == true && song.id != null) {
-      await ref.read(libraryRepositoryProvider)
+      await ref
+          .read(libraryRepositoryProvider)
           .removeSongFromPlaylist(playlist.id, song.id!);
     }
   }
@@ -405,8 +817,12 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
         title: const Text('Quitar canciones de la playlist'),
         content: Text('¿Quitar ${ids.length} canciones de "${playlist.name}"?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Quitar')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Quitar')),
         ],
       ),
     );

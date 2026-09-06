@@ -63,11 +63,21 @@ class LibraryRepository {
   Stream<List<PlaylistEntity>> watchPlaylists() {
     return _db.watchPlaylists().map((rows) => rows
         .map((row) => PlaylistEntity(
-            id: row.id, name: row.name, createdAt: row.createdAt))
+            id: row.id,
+            name: row.name,
+            coverPath: row.coverPath,
+            createdAt: row.createdAt))
         .toList());
   }
 
-  Future<int> createPlaylist(String name) => _db.createPlaylist(name);
+  Future<int> createPlaylist(String name, {String? coverPath}) =>
+      _db.createPlaylist(name, coverPath: coverPath);
+
+  Future<void> updatePlaylistCover(int playlistId, String? coverPath) =>
+      _db.updatePlaylistCover(playlistId, coverPath);
+
+  Future<void> updatePlaylist(int playlistId, String name, String? coverPath) =>
+      _db.updatePlaylist(playlistId, name, coverPath);
 
   Future<void> deletePlaylist(int playlistId) => _db.deletePlaylist(playlistId);
 
@@ -86,6 +96,9 @@ class LibraryRepository {
       _db.removeSongFromPlaylist(playlistId, songId);
 
   Future<void> incrementPlayCount(int songId) => _db.incrementPlayCount(songId);
+
+  Future<void> updateSongArtwork(int songId, String artworkPath) =>
+      _db.updateSongArtwork(songId, artworkPath);
 
   Stream<List<SongEntity>> watchHiddenSongs() {
     return _db.watchHiddenSongs().map((rows) => rows.map(_toEntity).toList());

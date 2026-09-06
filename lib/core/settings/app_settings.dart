@@ -29,18 +29,21 @@ class AppSettings {
     required this.accent,
     this.customAccentValue,
     this.displayName,
+    this.profileImagePath,
   });
 
   const AppSettings.initial()
       : isLoaded = false,
         accent = AppAccent.purple,
         customAccentValue = null,
-        displayName = null;
+        displayName = null,
+        profileImagePath = null;
 
   final bool isLoaded;
   final AppAccent accent;
   final int? customAccentValue;
   final String? displayName;
+  final String? profileImagePath;
 
   Color get activeColor => accent == AppAccent.custom
       ? Color(customAccentValue ?? AppAccent.custom.color.toARGB32())
@@ -51,6 +54,7 @@ class AppSettings {
     AppAccent? accent,
     int? customAccentValue,
     String? displayName,
+    String? profileImagePath,
     bool clearDisplayName = false,
   }) {
     return AppSettings(
@@ -58,6 +62,7 @@ class AppSettings {
       accent: accent ?? this.accent,
       customAccentValue: customAccentValue ?? this.customAccentValue,
       displayName: clearDisplayName ? null : (displayName ?? this.displayName),
+      profileImagePath: profileImagePath ?? this.profileImagePath,
     );
   }
 }
@@ -70,11 +75,13 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
   Future<void> _load() async {
     final preferences = await SharedPreferences.getInstance();
     final storedName = preferences.getString('display_name')?.trim();
+    final storedProfileImage = preferences.getString('profile_image_path');
     state = AppSettings(
       isLoaded: true,
       accent: AppAccent.fromStorage(preferences.getString('theme_accent')),
       customAccentValue: preferences.getInt('theme_custom_color'),
       displayName: storedName == null || storedName.isEmpty ? null : storedName,
+      profileImagePath: storedProfileImage,
     );
   }
 
@@ -84,6 +91,12 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     state = state.copyWith(displayName: trimmedName);
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString('display_name', trimmedName);
+  }
+
+  Future<void> setProfileImagePath(String path) async {
+    state = state.copyWith(profileImagePath: path);
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString('profile_image_path', path);
   }
 
   Future<void> setAccent(AppAccent accent) async {

@@ -34,6 +34,12 @@ const _supportedExtensions = [
   '.m4r',
 ];
 
+const minimumAudioDurationMs = 80 * 1000;
+
+bool isAcceptableAudioDuration(int durationMs) {
+  return durationMs <= 0 || durationMs > minimumAudioDurationMs;
+}
+
 abstract class AudioScanner {
   /// Escanea y retorna la lista de canciones encontradas.
   Future<List<SongEntity>> scan({bool pickFiles = false});
@@ -60,7 +66,9 @@ class MobileAudioScanner implements AudioScanner {
     for (final song in songs) {
       // Filtramos archivos que no sean música real (ej. tonos de llamada,
       // notificaciones cortas que a veces MediaStore incluye).
-      if (song.duration == null || song.duration! < 5000) continue;
+      if (song.duration == null || !isAcceptableAudioDuration(song.duration!)) {
+        continue;
+      }
 
       String? artworkPath;
       try {
@@ -107,8 +115,8 @@ class MobileAudioScanner implements AudioScanner {
     );
     if (pickedFiles == null) return [];
 
-    final importedDirectory =
-        Directory(p.join((await getApplicationDocumentsDirectory()).path, 'imported_music'));
+    final importedDirectory = Directory(p.join(
+        (await getApplicationDocumentsDirectory()).path, 'imported_music'));
     if (!await importedDirectory.exists()) {
       await importedDirectory.create(recursive: true);
     }
@@ -119,11 +127,14 @@ class MobileAudioScanner implements AudioScanner {
       if (pickedFile.path != null) {
         file = File(pickedFile.path!);
       } else if (pickedFile.bytes != null) {
-        final safeName = pickedFile.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+        final safeName =
+            pickedFile.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
         file = File(p.join(importedDirectory.path, safeName));
         await file.writeAsBytes(pickedFile.bytes!);
       }
-      if (file == null || !await file.exists() || !isSupportedAudioFile(file.path)) {
+      if (file == null ||
+          !await file.exists() ||
+          !isSupportedAudioFile(file.path)) {
         continue;
       }
 
@@ -134,6 +145,8 @@ class MobileAudioScanner implements AudioScanner {
         // Los metadatos no son obligatorios para importar y reproducir.
       }
       final stat = await file.stat();
+      final durationMs = (tag?.duration ?? 0) * 1000;
+      if (!isAcceptableAudioDuration(durationMs)) continue;
       result.add(SongEntity(
         filePath: file.path,
         title: tag?.title?.trim().isNotEmpty == true
@@ -141,7 +154,7 @@ class MobileAudioScanner implements AudioScanner {
             : p.basenameWithoutExtension(file.path),
         artist: tag?.trackArtist ?? 'Desconocido',
         album: tag?.album ?? 'Desconocido',
-        durationMs: (tag?.duration ?? 0) * 1000,
+        durationMs: durationMs,
         fileSizeBytes: stat.size,
         format: p.extension(file.path).replaceFirst('.', ''),
       ));
@@ -174,6 +187,8 @@ class DesktopAudioScanner implements AudioScanner {
       }
 
       final fileStat = await file.stat();
+      final durationMs = (tag?.duration ?? 0) * 1000;
+      if (!isAcceptableAudioDuration(durationMs)) continue;
 
       if (tag?.pictures.isNotEmpty ?? false) {
         try {
@@ -194,7 +209,7 @@ class DesktopAudioScanner implements AudioScanner {
             : p.basenameWithoutExtension(file.path),
         artist: tag?.trackArtist ?? 'Desconocido',
         album: tag?.album ?? 'Desconocido',
-        durationMs: (tag?.duration ?? 0) * 1000,
+        durationMs: durationMs,
         artworkPath: artworkPath,
         fileSizeBytes: fileStat.size,
         format: p.extension(file.path).replaceAll('.', ''),
@@ -259,7 +274,8 @@ List<File> findSupportedAudioFilesInDirectory(Directory directory) {
   if (!directory.existsSync()) return const [];
 
   final files = <File>[];
-  for (final entity in directory.listSync(recursive: true, followLinks: false)) {
+  for (final entity
+      in directory.listSync(recursive: true, followLinks: false)) {
     if (entity is File && isSupportedAudioFile(entity.path)) {
       files.add(entity);
     }
@@ -274,8 +290,7 @@ List<String> _listFilesInDirectory(String directoryPath) {
   final files = <String>[];
   for (final entity
       in directory.listSync(recursive: true, followLinks: false)) {
-    if (entity is File &&
-        isSupportedAudioFile(entity.path)) {
+    if (entity is File && isSupportedAudioFile(entity.path)) {
       files.add(entity.path);
     }
   }

@@ -80,37 +80,41 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     final colorScheme = Theme.of(context).colorScheme;
     final isMobile = MediaQuery.sizeOf(context).width < 720;
     final playerBar = playerState.currentSong == null
-      ? null
-      : NowPlayingBar(
-        state: playerState,
-        onToggle: () => ref.read(playerProvider.notifier).toggle(),
-        onPrevious: () => ref.read(playerProvider.notifier).previous(),
-        onNext: () => ref.read(playerProvider.notifier).next(),
-        onToggleShuffle: () =>
-          ref.read(playerProvider.notifier).toggleShuffle(),
-        onToggleRepeat: () =>
-          ref.read(playerProvider.notifier).toggleRepeat(),
-        onShowLyrics: () => showLyricsSheet(context),
-        onSeek: (position) =>
-          ref.read(playerProvider.notifier).seek(position),
-        onSetVolume: (volume) =>
-          ref.read(playerProvider.notifier).setVolume(volume),
-        onShowQueue: () => showPlayerQueue(context),
-        );
+        ? null
+        : NowPlayingBar(
+            state: playerState,
+            onToggle: () => ref.read(playerProvider.notifier).toggle(),
+            onPrevious: () => ref.read(playerProvider.notifier).previous(),
+            onNext: () => ref.read(playerProvider.notifier).next(),
+            onToggleShuffle: () =>
+                ref.read(playerProvider.notifier).toggleShuffle(),
+            onToggleRepeat: () =>
+                ref.read(playerProvider.notifier).toggleRepeat(),
+            onShowLyrics: () => showLyricsSheet(context),
+            onSeek: (position) =>
+                ref.read(playerProvider.notifier).seek(position),
+            onSetVolume: (volume) =>
+                ref.read(playerProvider.notifier).setVolume(volume),
+            onShowQueue: () => showPlayerQueue(context),
+          );
 
     return Scaffold(
       body: isMobile
-          ? Column(
-              children: [
-                _MobileTopNavigation(
-                  selectedIndex: _selectedIndex,
-                  onSelected: (index) => setState(() => _selectedIndex = index),
-                ),
-                Expanded(
-                  child: currentPage,
-                ),
-                if (playerBar != null) playerBar,
-              ],
+          ? SafeArea(
+              bottom: false,
+              child: Column(
+                children: [
+                  _MobileTopNavigation(
+                    selectedIndex: _selectedIndex,
+                    onSelected: (index) =>
+                        setState(() => _selectedIndex = index),
+                  ),
+                  Expanded(
+                    child: currentPage,
+                  ),
+                  if (playerBar != null) playerBar,
+                ],
+              ),
             )
           : Row(
               children: [
@@ -188,52 +192,47 @@ class _MobileTopNavigation extends StatelessWidget {
     ];
     final colorScheme = Theme.of(context).colorScheme;
 
-    return SafeArea(
-      bottom: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Icon(Icons.graphic_eq_rounded,
-                    color: colorScheme.primary, size: 30),
-                const SizedBox(width: 8),
-                Text('MuShare', style: Theme.of(context).textTheme.titleLarge),
-              ],
-            ),
-            const SizedBox(height: 10),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: List.generate(destinations.length, (index) {
-                  final destination = destinations[index];
-                  final selected = index == selectedIndex;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      selected: selected,
-                      showCheckmark: false,
-                      avatar: Icon(
-                        destination.icon,
-                        size: 18,
-                        color:
-                            selected ? Colors.white : AppColors.textSecondary,
-                      ),
-                      label: Text(destination.label),
-                      selectedColor: colorScheme.primary,
-                      labelStyle: TextStyle(
-                        color:
-                            selected ? Colors.white : AppColors.textSecondary,
-                      ),
-                      onSelected: (_) => onSelected(index),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(Icons.graphic_eq_rounded,
+                  color: colorScheme.primary, size: 30),
+              const SizedBox(width: 8),
+              Text('MuShare', style: Theme.of(context).textTheme.titleLarge),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: List.generate(destinations.length, (index) {
+                final destination = destinations[index];
+                final selected = index == selectedIndex;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    selected: selected,
+                    showCheckmark: false,
+                    avatar: Icon(
+                      destination.icon,
+                      size: 18,
+                      color: selected ? Colors.white : AppColors.textSecondary,
                     ),
-                  );
-                }),
-              ),
+                    label: Text(destination.label),
+                    selectedColor: colorScheme.primary,
+                    labelStyle: TextStyle(
+                      color: selected ? Colors.white : AppColors.textSecondary,
+                    ),
+                    onSelected: (_) => onSelected(index),
+                  ),
+                );
+              }),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

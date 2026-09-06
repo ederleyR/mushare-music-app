@@ -18,20 +18,33 @@ class ShareScreen extends ConsumerStatefulWidget {
 }
 
 class _ShareScreenState extends ConsumerState<ShareScreen> {
-  String? _startedFor;
+  String? _startedForName;
+  String? _startedForProfile;
 
-  void _ensureStarted(String? name) {
-    final effectiveName = (name == null || name.trim().isEmpty) ? 'Usuario' : name;
-    if (_startedFor == effectiveName) return;
-    _startedFor = effectiveName;
-    ref.read(localShareProvider.notifier).start(userName: effectiveName);
+  void _ensureStarted(String? name, String? profileImagePath) {
+    final effectiveName =
+        (name == null || name.trim().isEmpty) ? 'Usuario' : name;
+    if (_startedForName == effectiveName &&
+        _startedForProfile == profileImagePath) {
+      return;
+    }
+    _startedForName = effectiveName;
+    _startedForProfile = profileImagePath;
+    ref.read(localShareProvider.notifier).start(
+          userName: effectiveName,
+          profileImagePath: profileImagePath,
+        );
   }
 
   @override
   Widget build(BuildContext context) {
-    final name = ref.watch(appSettingsProvider.select((settings) => settings.displayName));
+    final name = ref
+        .watch(appSettingsProvider.select((settings) => settings.displayName));
+    final profileImagePath = ref.watch(
+        appSettingsProvider.select((settings) => settings.profileImagePath));
     final share = ref.watch(localShareProvider);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureStarted(name));
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _ensureStarted(name, profileImagePath));
 
     return SafeArea(
       child: ListView(
@@ -52,9 +65,11 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.bluetooth_connected_rounded, color: Theme.of(context).colorScheme.primary),
+                      Icon(Icons.bluetooth_connected_rounded,
+                          color: Theme.of(context).colorScheme.primary),
                       const SizedBox(width: 8),
-                      Text('Bluetooth', style: Theme.of(context).textTheme.titleLarge),
+                      Text('Bluetooth',
+                          style: Theme.of(context).textTheme.titleLarge),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -85,7 +100,8 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
           ),
           const SizedBox(height: 18),
           if (!share.isRunning)
-            const Center(child: Padding(
+            const Center(
+                child: Padding(
               padding: EdgeInsets.all(24),
               child: CircularProgressIndicator(),
             )),
@@ -97,20 +113,28 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
           const SizedBox(height: 20),
           Row(
             children: [
-              Icon(Icons.devices_other_rounded, color: Theme.of(context).colorScheme.primary),
+              Icon(Icons.devices_other_rounded,
+                  color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 8),
-              Text('Dispositivos en la red', style: Theme.of(context).textTheme.titleLarge),
+              Text('Dispositivos en la red',
+                  style: Theme.of(context).textTheme.titleLarge),
             ],
           ),
           const SizedBox(height: 10),
           if (share.isRunning && share.devices.isEmpty)
-            const _EmptyDevices(),
+            _EmptyDevices(
+              onRetry: () =>
+                  ref.read(localShareProvider.notifier).retryDiscovery(),
+            ),
           for (final device in share.devices) ...[
             const SizedBox(height: 8),
             Card(
               child: ListTile(
-                leading: CircleAvatar(
-                  child: Icon(Platform.isWindows ? Icons.computer_rounded : Icons.phone_android_rounded),
+                leading: _ProfileNetworkAvatar(
+                  uri: device.profileImageUri,
+                  fallback: Platform.isWindows
+                      ? Icons.computer_rounded
+                      : Icons.phone_android_rounded,
                 ),
                 // El orden es intencional: nombre de MuShare arriba y equipo abajo.
                 title: Text(device.userName),
@@ -167,17 +191,20 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
     final ok = await AudioOutputService.openBluetoothSettings();
     if (!ok && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo abrir la configuración de Bluetooth.')),
+        const SnackBar(
+            content: Text('No se pudo abrir la configuración de Bluetooth.')),
       );
     }
   }
 
   Future<void> _shareSongViaBluetooth() async {
-    final songs = ref.read(songsStreamProvider).valueOrNull ?? const <SongEntity>[];
+    final songs =
+        ref.read(songsStreamProvider).valueOrNull ?? const <SongEntity>[];
     if (songs.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No hay canciones para compartir por Bluetooth.')),
+          const SnackBar(
+              content: Text('No hay canciones para compartir por Bluetooth.')),
         );
       }
       return;
@@ -220,7 +247,10 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
     await SharePlus.instance.share(
       ShareParams(
         subject: 'MuShare: ${selected.title}',
-        files: [XFile(file.path, name: file.uri.pathSegments.lastOrNull ?? selected.title)],
+        files: [
+          XFile(file.path,
+              name: file.uri.pathSegments.lastOrNull ?? selected.title)
+        ],
       ),
     );
   }
@@ -254,14 +284,17 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
     );
 
     if (selected == null || !mounted) return;
-    final songs = await ref.read(playlistSongsStreamProvider(selected.id).future);
+    final songs =
+        await ref.read(playlistSongsStreamProvider(selected.id).future);
     if (!mounted) return;
 
-    final files = songs.where((song) => File(song.filePath).existsSync()).toList();
+    final files =
+        songs.where((song) => File(song.filePath).existsSync()).toList();
     if (files.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('La playlist no tiene archivos disponibles.')),
+          const SnackBar(
+              content: Text('La playlist no tiene archivos disponibles.')),
         );
       }
       return;
@@ -272,14 +305,16 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
         subject: 'MuShare playlist: ${selected.name}',
         files: files
             .map((song) => XFile(song.filePath,
-                name: File(song.filePath).uri.pathSegments.lastOrNull ?? song.title))
+                name: File(song.filePath).uri.pathSegments.lastOrNull ??
+                    song.title))
             .toList(),
       ),
     );
   }
 
   Future<void> _pickSong(LocalDevice device) async {
-    final songs = ref.read(songsStreamProvider).valueOrNull ?? const <SongEntity>[];
+    final songs =
+        ref.read(songsStreamProvider).valueOrNull ?? const <SongEntity>[];
     final selected = await showDialog<SongEntity>(
       context: context,
       builder: (context) => AlertDialog(
@@ -295,8 +330,10 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
                     final song = songs[index];
                     return ListTile(
                       leading: _ArtworkThumbnail(song: song),
-                      title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      title: Text(song.title,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Text(song.artist,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
                       onTap: () => Navigator.pop(context, song),
                     );
                   },
@@ -335,9 +372,12 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
       ),
     );
     if (selected == null || !mounted) return;
-    final songs = await ref.read(playlistSongsStreamProvider(selected.id).future);
+    final songs =
+        await ref.read(playlistSongsStreamProvider(selected.id).future);
     if (!mounted) return;
-    await ref.read(localShareProvider.notifier).sharePlaylist(device, selected, songs);
+    await ref
+        .read(localShareProvider.notifier)
+        .sharePlaylist(device, selected, songs);
     if (mounted && songs.isNotEmpty) _sentMessage(device.userName);
   }
 
@@ -354,7 +394,9 @@ class _IncomingTransferCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final icon = transfer.isPlaylist ? Icons.queue_music_rounded : Icons.music_note_rounded;
+    final icon = transfer.isPlaylist
+        ? Icons.queue_music_rounded
+        : Icons.music_note_rounded;
     final description = transfer.isPlaylist
         ? 'Playlist con ${transfer.itemCount} canciones'
         : 'Canción';
@@ -366,7 +408,14 @@ class _IncomingTransferCard extends ConsumerWidget {
           Row(children: [
             _NetworkArtworkThumbnail(uri: transfer.coverUri, fallback: icon),
             const SizedBox(width: 8),
-            Expanded(child: Text('${transfer.senderName} quiere enviarte:', style: Theme.of(context).textTheme.titleSmall)),
+            _ProfileNetworkAvatar(
+              uri: transfer.senderImageUri,
+              fallback: Icons.person_rounded,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+                child: Text('${transfer.senderName} quiere enviarte:',
+                    style: Theme.of(context).textTheme.titleSmall)),
           ]),
           const SizedBox(height: 10),
           Text(transfer.title, style: Theme.of(context).textTheme.titleMedium),
@@ -374,7 +423,9 @@ class _IncomingTransferCard extends ConsumerWidget {
           const SizedBox(height: 10),
           Row(mainAxisAlignment: MainAxisAlignment.end, children: [
             TextButton(
-              onPressed: () => ref.read(localShareProvider.notifier).rejectTransfer(transfer.id),
+              onPressed: () => ref
+                  .read(localShareProvider.notifier)
+                  .rejectTransfer(transfer.id),
               child: const Text('Rechazar'),
             ),
             const SizedBox(width: 8),
@@ -401,7 +452,9 @@ Future<void> _acceptWithProgress(
     completedFiles: 0,
     totalFiles: 0,
   ));
-  var finished = false;
+  final cancellation = TransferCancellation();
+  final cancelRequested = ValueNotifier(false);
+  var completed = false;
   final dialog = showDialog<void>(
     context: context,
     barrierDismissible: false,
@@ -411,31 +464,57 @@ Future<void> _acceptWithProgress(
         valueListenable: progress,
         builder: (context, value, _) {
           final percent = (value.fraction * 100).clamp(0, 100).round();
-          return AlertDialog(
-            title: const Text('Descargando contenido'),
-            content: Column(mainAxisSize: MainAxisSize.min, children: [
-              LinearProgressIndicator(value: value.totalBytes > 0 ? value.fraction : null),
-              const SizedBox(height: 16),
-              Text(value.totalBytes > 0 ? '$percent% completado' : 'Preparando descarga...'),
-              const SizedBox(height: 6),
-              Text('Canción ${value.completedFiles + 1} de ${value.totalFiles == 0 ? transfer.itemCount : value.totalFiles}'),
-            ]),
+          return ValueListenableBuilder<bool>(
+            valueListenable: cancelRequested,
+            builder: (context, isCancelling, _) => AlertDialog(
+              title: Text(isCancelling
+                  ? 'Cancelando descarga'
+                  : 'Descargando contenido'),
+              content: Column(mainAxisSize: MainAxisSize.min, children: [
+                LinearProgressIndicator(
+                    value: value.totalBytes > 0 ? value.fraction : null),
+                const SizedBox(height: 16),
+                Text(value.totalBytes > 0
+                    ? '$percent% completado'
+                    : 'Preparando descarga...'),
+                const SizedBox(height: 6),
+                Text(
+                    'Canción ${value.completedFiles + 1} de ${value.totalFiles == 0 ? transfer.itemCount : value.totalFiles}'),
+              ]),
+              actions: [
+                TextButton(
+                  onPressed: isCancelling
+                      ? null
+                      : () {
+                          cancelRequested.value = true;
+                          cancellation.cancel();
+                        },
+                  child: Text(isCancelling ? 'Cancelando...' : 'Cancelar'),
+                ),
+              ],
+            ),
           );
         },
       ),
     ),
   );
-  await ref.read(localShareProvider.notifier).acceptTransfer(
-    transfer,
-    onProgress: (value) => progress.value = value,
-  );
-  finished = true;
+  completed = await ref.read(localShareProvider.notifier).acceptTransfer(
+        transfer,
+        cancellation: cancellation,
+        onProgress: (value) => progress.value = value,
+      );
   if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
   await dialog;
   progress.dispose();
-  if (finished && context.mounted) {
+  cancelRequested.dispose();
+  if (completed && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Contenido recibido y guardado en tu biblioteca.')),
+      const SnackBar(
+          content: Text('Contenido recibido y guardado en tu biblioteca.')),
+    );
+  } else if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Descarga cancelada.')),
     );
   }
 }
@@ -448,7 +527,8 @@ class _ArtworkThumbnail extends StatelessWidget {
   Widget build(BuildContext context) => ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: song.artworkPath != null && File(song.artworkPath!).existsSync()
-            ? Image.file(File(song.artworkPath!), width: 46, height: 46, fit: BoxFit.cover)
+            ? Image.file(File(song.artworkPath!),
+                width: 46, height: 46, fit: BoxFit.cover)
             : Container(
                 width: 46,
                 height: 46,
@@ -471,9 +551,24 @@ class _NetworkArtworkThumbnail extends StatelessWidget {
           height: 54,
           child: uri == null
               ? Icon(fallback)
-              : Image.network(uri.toString(), fit: BoxFit.cover,
+              : Image.network(uri.toString(),
+                  fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => Icon(fallback)),
         ),
+      );
+}
+
+class _ProfileNetworkAvatar extends StatelessWidget {
+  const _ProfileNetworkAvatar({required this.uri, required this.fallback});
+
+  final Uri? uri;
+  final IconData fallback;
+
+  @override
+  Widget build(BuildContext context) => CircleAvatar(
+        backgroundImage: uri == null ? null : NetworkImage(uri.toString()),
+        onBackgroundImageError: uri == null ? null : (_, __) {},
+        child: uri == null ? Icon(fallback) : null,
       );
 }
 
@@ -484,11 +579,20 @@ class _PlaylistPickerTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final songs = ref.watch(playlistSongsStreamProvider(playlist.id)).valueOrNull ?? const <SongEntity>[];
+    final songs =
+        ref.watch(playlistSongsStreamProvider(playlist.id)).valueOrNull ??
+            const <SongEntity>[];
+    final coverPath = playlist.coverPath as String?;
     return ListTile(
-      leading: songs.isEmpty
-          ? const Icon(Icons.queue_music_rounded)
-          : _ArtworkThumbnail(song: songs.first),
+      leading: coverPath != null && File(coverPath).existsSync()
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(File(coverPath),
+                  width: 46, height: 46, fit: BoxFit.cover),
+            )
+          : songs.isEmpty
+              ? const Icon(Icons.queue_music_rounded)
+              : _ArtworkThumbnail(song: songs.first),
       title: Text(playlist.name),
       subtitle: Text('${songs.length} canciones'),
       onTap: onTap,
@@ -512,17 +616,25 @@ class _ErrorCard extends StatelessWidget {
 }
 
 class _EmptyDevices extends StatelessWidget {
-  const _EmptyDevices();
+  const _EmptyDevices({required this.onRetry});
+
+  final VoidCallback onRetry;
 
   @override
-  Widget build(BuildContext context) => const Padding(
-        padding: EdgeInsets.symmetric(vertical: 30),
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 30),
         child: Column(children: [
-          Icon(Icons.wifi_find_rounded, size: 48),
-          SizedBox(height: 10),
-          Text('Buscando otros dispositivos con MuShare...'),
-          SizedBox(height: 4),
-          Text('Conéctalos a la misma red Wi-Fi.'),
+          const Icon(Icons.wifi_find_rounded, size: 48),
+          const SizedBox(height: 10),
+          const Text('Buscando otros dispositivos con MuShare...'),
+          const SizedBox(height: 4),
+          const Text('Conéctalos a la misma red Wi-Fi.'),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Volver a buscar'),
+          ),
         ]),
       );
 }

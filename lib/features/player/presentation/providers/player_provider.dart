@@ -16,6 +16,18 @@ import '../services/system_media_service.dart';
 
 enum PlaybackRepeatMode { off, one, all }
 
+const equalizerBandFrequencies = [60, 230, 910, 3600, 14000];
+const defaultEqualizerBands = [0.0, 0.0, 0.0, 0.0, 0.0];
+
+const equalizerPresets = <String, List<double>>{
+  'Plano': defaultEqualizerBands,
+  'Pop': [-1.0, 2.0, 3.0, 2.0, -1.0],
+  'Rock': [4.0, 2.0, -1.0, 2.5, 4.0],
+  'Jazz': [3.0, 1.0, -1.0, 1.5, 3.0],
+  'Clásica': [3.0, 1.0, -1.0, 2.0, 3.0],
+  'Bass Boost': [6.0, 4.0, 1.0, 0.0, 0.0],
+};
+
 class PlayerState {
   const PlayerState(
       {this.currentSong,
@@ -30,6 +42,7 @@ class PlayerState {
       this.lyricsLoading = false,
       this.lyricsError,
       this.volume = 100,
+      this.equalizerBands = defaultEqualizerBands,
       this.queue = const [],
       this.queueIndex = -1,
       this.sleepTimerRemaining,
@@ -46,6 +59,7 @@ class PlayerState {
   final bool lyricsLoading;
   final String? lyricsError;
   final double volume;
+  final List<double> equalizerBands;
   final List<SongEntity> queue;
   final int queueIndex;
   final Duration? sleepTimerRemaining;
@@ -64,6 +78,7 @@ class PlayerState {
           bool? lyricsLoading,
           String? lyricsError,
           double? volume,
+          List<double>? equalizerBands,
           List<SongEntity>? queue,
           int? queueIndex,
           Duration? sleepTimerRemaining,
@@ -83,6 +98,7 @@ class PlayerState {
         lyricsLoading: lyricsLoading ?? this.lyricsLoading,
         lyricsError: lyricsError ?? this.lyricsError,
         volume: volume ?? this.volume,
+        equalizerBands: equalizerBands ?? this.equalizerBands,
         queue: queue ?? this.queue,
         queueIndex: queueIndex ?? this.queueIndex,
         sleepTimerRemaining: clearSleepTimer
@@ -160,6 +176,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         'last_song_position', state.position.inMilliseconds);
     await preferences.setBool('playback_shuffle', state.isShuffleEnabled);
     await preferences.setString(
+      'equalizer_bands',
+      jsonEncode(state.equalizerBands),
+    );
+    await preferences.setString(
       'playback_queue',
       jsonEncode(state.queue.map(_songToJson).toList()),
     );
@@ -187,6 +207,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     );
     final restoredQueue =
         _restoreQueue(preferences.getString('playback_queue'));
+    final equalizerBands = _restoreEqualizerBands(
+      preferences.getString('equalizer_bands'),
+    );
     _sourceQueue = restoredQueue.isEmpty ? [song] : restoredQueue;
     _queue = _sourceQueue;
     final savedQueueIndex = preferences.getInt('playback_queue_index') ?? 0;
@@ -205,6 +228,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       canGoNext: _canGoNext(),
       queue: _queue,
       queueIndex: _queueIndex,
+      equalizerBands: equalizerBands,
     );
     unawaited(_loadLyrics(queueSong));
     _syncSystemMedia();
@@ -264,6 +288,81 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   DateTime? _sleepDeadline;
   DateTime _lastSavedAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _isTransitioning = false;
+  int _equalizerRevision = 0;
+  Timer? _equalizerApplyTimer;
+
+  List<double> _restoreEqualizerBands(String? encoded) {
+    if (encoded == null) return defaultEqualizerBands;
+    try {
+      final values = (jsonDecode(encoded) as List<dynamic>)
+          .map((value) => (value as num).toDouble())
+          .toList();
+      if (values.length != equalizerBandFrequencies.length) {
+        return defaultEqualizerBands;
+      }
+      return values.map((value) => value.clamp(-12.0, 12.0)).toList();
+    } catch (_) {
+      return defaultEqualizerBands;
+    }
+  }
+
+  Future<void> setEqualizerBand(int index, double gain) async {
+    if (index < 0 || index >= equalizerBandFrequencies.length) return;
+    final bands = List<double>.of(state.equalizerBands);
+    bands[index] = gain.clamp(-12.0, 12.0);
+    await setEqualizerBands(bands);
+  }
+
+  Future<void> setEqualizerBands(List<double> bands) async {
+    if (bands.length != equalizerBandFrequencies.length) return;
+    final normalized = bands
+        .map((gain) => gain.clamp(-12.0, 12.0).toDouble())
+        .toList(growable: false);
+    state = state.copyWith(equalizerBands: List.unmodifiable(normalized));
+    final revision = ++_equalizerRevision;
+    _equalizerApplyTimer?.cancel();
+    _equalizerApplyTimer = Timer(const Duration(milliseconds: 45), () {
+      unawaited(_applyEqualizer(revision));
+    });
+    unawaited(_saveLastSession());
+  }
+
+  Future<void> resetEqualizer() async {
+    await applyEqualizerPreset('Plano');
+  }
+
+  Future<void> applyEqualizerPreset(String name) async {
+    final preset = equalizerPresets[name];
+    if (preset == null) return;
+    await setEqualizerBands(preset);
+  }
+
+  Future<void> reloadLyrics() async {
+    final song = state.currentSong;
+    if (song == null) return;
+    await _loadLyrics(song);
+  }
+
+  Future<void> _applyEqualizer([int? revision]) async {
+    final platform = _player?.platform;
+    if (platform == null) return;
+    final bands = List<double>.of(state.equalizerBands);
+    final filters = <String>[];
+    for (var index = 0; index < equalizerBandFrequencies.length; index++) {
+      final gain = bands[index];
+      if (gain.abs() < 0.01) continue;
+      filters.add(
+        'equalizer=f=${equalizerBandFrequencies[index]}:width_type=o:width=1:g=${gain.toStringAsFixed(2)}',
+      );
+    }
+    try {
+      if (revision != null && revision != _equalizerRevision) return;
+      await (platform as dynamic).setProperty('af', filters.join(','));
+    } catch (_) {
+      // Algunas plataformas no exponen los filtros de mpv.
+    }
+  }
+
   static const _crossfadeSteps = 16;
   static const _crossfadeStepDuration = Duration(milliseconds: 50);
 
@@ -332,6 +431,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       unawaited(_loadLyrics(song));
       final player = _ensurePlayer();
       await player.open(Media(song.filePath));
+      await _applyEqualizer();
       await player.play();
       _syncSystemMedia();
     } catch (error) {
@@ -340,7 +440,22 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   Future<void> _loadLyrics(SongEntity song) async {
-    state = state.copyWith(lyricsLoading: true, lyricsError: null);
+    state = PlayerState(
+      currentSong: state.currentSong,
+      isPlaying: state.isPlaying,
+      position: state.position,
+      duration: state.duration,
+      canGoPrevious: state.canGoPrevious,
+      canGoNext: state.canGoNext,
+      isShuffleEnabled: state.isShuffleEnabled,
+      repeatMode: state.repeatMode,
+      lyricsLoading: true,
+      volume: state.volume,
+      equalizerBands: state.equalizerBands,
+      queue: state.queue,
+      queueIndex: state.queueIndex,
+      sleepTimerRemaining: state.sleepTimerRemaining,
+    );
     final lyrics = await _lyricsService.find(song);
     if (state.currentSong?.filePath != song.filePath) return;
     state = state.copyWith(
@@ -484,8 +599,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   bool _canGoPrevious() =>
       _historyIndex > 0 || (_queueIndex > 0 && _queue.isNotEmpty);
 
-  bool _canGoNext() =>
-      _historyIndex < _history.length - 1 || _hasQueueNext();
+  bool _canGoNext() => _historyIndex < _history.length - 1 || _hasQueueNext();
 
   List<SongEntity> _shuffledQueueStartingWith(
       SongEntity currentSong, List<SongEntity> sourceQueue) {
@@ -502,6 +616,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       subscription.cancel();
     }
     _player?.dispose();
+    _equalizerApplyTimer?.cancel();
     _sleepTimer?.cancel();
     unawaited(_saveLastSession());
     super.dispose();

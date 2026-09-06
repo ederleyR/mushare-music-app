@@ -18,6 +18,7 @@ class SongTile extends StatelessWidget {
   final VoidCallback? onFavoriteTap;
   final VoidCallback? onAddToPlaylistTap;
   final VoidCallback? onDeleteTap;
+  final VoidCallback? onArtworkTap;
   final bool isFavorite;
   final bool isPlaying;
   final bool isSelected;
@@ -30,6 +31,7 @@ class SongTile extends StatelessWidget {
     this.onFavoriteTap,
     this.onAddToPlaylistTap,
     this.onDeleteTap,
+    this.onArtworkTap,
     this.isFavorite = false,
     this.isPlaying = false,
     this.isSelected = false,
@@ -46,7 +48,9 @@ class SongTile extends StatelessWidget {
       onTap: onTap,
       onLongPress: isMobile
           ? (onLongPress ??
-              ((onAddToPlaylistTap != null || onDeleteTap != null)
+              ((onAddToPlaylistTap != null ||
+                      onDeleteTap != null ||
+                      onArtworkTap != null)
                   ? () => _showMobileActions(context)
                   : null))
           : onLongPress,
@@ -55,70 +59,80 @@ class SongTile extends StatelessWidget {
         duration: const Duration(milliseconds: 160),
         decoration: BoxDecoration(
           color: isSelected ? primaryColor.withValues(alpha: 0.18) : null,
-          border: isSelected ? Border.all(color: primaryColor, width: 1.5) : null,
+          border:
+              isSelected ? Border.all(color: primaryColor, width: 1.5) : null,
           borderRadius: BorderRadius.circular(14),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
-          children: [
-            _buildArtwork(context),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    song.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: isPlaying ? primaryColor : AppColors.textPrimary,
+            children: [
+              _buildArtwork(context),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      song.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: isPlaying ? primaryColor : AppColors.textPrimary,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    '${song.artist} • ${song.formattedDuration}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: textTheme.bodyMedium,
-                  ),
-                ],
-              ),
-            ),
-            if (onFavoriteTap != null)
-              IconButton(
-                icon: Icon(
-                  isFavorite
-                      ? Icons.favorite_rounded
-                      : Icons.favorite_border_rounded,
-                  size: 22,
-                  color:
-                      isFavorite ? primaryColor : AppColors.textSecondary,
+                    const SizedBox(height: 3),
+                    Text(
+                      '${song.artist} • ${song.formattedDuration}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodyMedium,
+                    ),
+                  ],
                 ),
-                onPressed: onFavoriteTap,
               ),
-            if (!isMobile && onAddToPlaylistTap != null)
-              IconButton(
-                tooltip: 'Agregar a playlist',
-                icon: const Icon(Icons.add_rounded, size: 20, color: Colors.white),
-                style: IconButton.styleFrom(
-                  backgroundColor: primaryColor,
-                  foregroundColor: Colors.white,
-                  shadowColor: Colors.transparent,
+              if (song.artworkPath == null && onArtworkTap != null)
+                IconButton(
+                  tooltip: 'Agregar portada',
+                  icon: const Icon(Icons.add_photo_alternate_outlined,
+                      size: 22, color: AppColors.textSecondary),
+                  onPressed: onArtworkTap,
                 ),
-                onPressed: onAddToPlaylistTap,
-              ),
-            if (!isMobile && onDeleteTap != null)
-              IconButton(
-                tooltip: 'Quitar de MuShare',
-                icon: const Icon(Icons.delete_outline_rounded,
-                    size: 22, color: AppColors.textSecondary),
-                onPressed: onDeleteTap,
-              ),
-          ],
+              if (onFavoriteTap != null)
+                IconButton(
+                  tooltip:
+                      isFavorite ? 'Quitar de favoritos' : 'Añadir a favoritos',
+                  icon: Icon(
+                    isFavorite
+                        ? Icons.favorite_rounded
+                        : Icons.favorite_border_rounded,
+                    size: 22,
+                    color: isFavorite ? primaryColor : AppColors.textSecondary,
+                  ),
+                  onPressed: onFavoriteTap,
+                ),
+              if (!isMobile && onAddToPlaylistTap != null)
+                IconButton(
+                  tooltip: 'Agregar a playlist',
+                  icon: const Icon(Icons.add_rounded,
+                      size: 20, color: Colors.white),
+                  style: IconButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    foregroundColor: Colors.white,
+                    shadowColor: Colors.transparent,
+                  ),
+                  onPressed: onAddToPlaylistTap,
+                ),
+              if (!isMobile && onDeleteTap != null)
+                IconButton(
+                  tooltip: 'Quitar de MuShare',
+                  icon: const Icon(Icons.delete_outline_rounded,
+                      size: 22, color: AppColors.textSecondary),
+                  onPressed: onDeleteTap,
+                ),
+            ],
           ),
         ),
       ),
@@ -161,6 +175,15 @@ class SongTile extends StatelessWidget {
                   onDeleteTap!();
                 },
               ),
+            if (song.artworkPath == null && onArtworkTap != null)
+              ListTile(
+                leading: const Icon(Icons.add_photo_alternate_outlined),
+                title: const Text('Agregar portada'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  onArtworkTap!();
+                },
+              ),
           ],
         ),
       ),
@@ -185,11 +208,11 @@ class SongTile extends StatelessWidget {
               : Container(
                   width: 52,
                   height: 52,
-                decoration: BoxDecoration(
-                  gradient: AppTheme.primaryGradient(context),
-                ),
-                child: const Icon(Icons.music_note_rounded,
-                    color: Colors.white, size: 22),
+                  decoration: BoxDecoration(
+                    gradient: AppTheme.primaryGradient(context),
+                  ),
+                  child: const Icon(Icons.music_note_rounded,
+                      color: Colors.white, size: 22),
                 ),
         ),
         // Overlay sutil + ícono de ecualizador cuando esta es la canción

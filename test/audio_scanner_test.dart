@@ -15,16 +15,25 @@ void main() {
       final files = findSupportedAudioFilesInDirectory(tempDir);
 
       expect(files.length, 2);
-      expect(files.map((file) => file.path).toList(), containsAll([
-        '${tempDir.path}\\cancion1.mp3',
-        '${tempDir.path}\\cancion2.flac',
-      ]));
+      expect(
+          files.map((file) => file.path).toList(),
+          containsAll([
+            '${tempDir.path}\\cancion1.mp3',
+            '${tempDir.path}\\cancion2.flac',
+          ]));
     });
 
     test('acepta extensiones soportadas', () {
       expect(isSupportedAudioFile('cancion.mp3'), isTrue);
       expect(isSupportedAudioFile('cancion.flac'), isTrue);
       expect(isSupportedAudioFile('cancion.txt'), isFalse);
+    });
+
+    test('rechaza canciones de 1:20 o menos cuando se conoce su duración', () {
+      expect(isAcceptableAudioDuration(0), isTrue);
+      expect(isAcceptableAudioDuration(79 * 1000), isFalse);
+      expect(isAcceptableAudioDuration(80 * 1000), isFalse);
+      expect(isAcceptableAudioDuration(81 * 1000), isTrue);
     });
   });
 }

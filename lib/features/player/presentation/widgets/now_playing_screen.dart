@@ -35,15 +35,16 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     final size = MediaQuery.sizeOf(context);
     final isLandscape = size.width > size.height;
     final artworkSize = isLandscape
-      ? (size.height - 112).clamp(140.0, 250.0).toDouble()
-      : (size.width - 48).clamp(220.0, 430.0).toDouble();
+        ? (size.height - 112).clamp(140.0, 250.0).toDouble()
+        : (size.width - 48).clamp(220.0, 430.0).toDouble();
     final contentPadding = isLandscape
-      ? const EdgeInsets.fromLTRB(24, 4, 24, 16)
-      : const EdgeInsets.fromLTRB(24, 18, 24, 28);
+        ? const EdgeInsets.fromLTRB(24, 4, 24, 16)
+        : const EdgeInsets.fromLTRB(24, 18, 24, 28);
     final max = state.duration.inMilliseconds > 0
         ? state.duration.inMilliseconds.toDouble()
         : 1.0;
-    final value = state.position.inMilliseconds.clamp(0, max.toInt()).toDouble();
+    final value =
+        state.position.inMilliseconds.clamp(0, max.toInt()).toDouble();
     final notifier = ref.read(playerProvider.notifier);
 
     return Scaffold(
@@ -73,10 +74,15 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                       child: Text('REPRODUCIENDO AHORA',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                              fontSize: 11, fontWeight: FontWeight.w700,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
                               letterSpacing: 1.5)),
                     ),
-                    const SizedBox(width: 48),
+                    IconButton(
+                      tooltip: 'Ecualizador',
+                      onPressed: () => _showEqualizer(context),
+                      icon: const Icon(Icons.equalizer_rounded),
+                    ),
                   ],
                 ),
               ),
@@ -88,7 +94,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                     children: [
                       Hero(
                         tag: nowPlayingArtworkHeroTag,
-                        child: ArtworkImage(song: song, size: artworkSize, radius: 24),
+                        child: ArtworkImage(
+                            song: song, size: artworkSize, radius: 24),
                       ),
                       SizedBox(height: isLandscape ? 12 : 28),
                       Align(
@@ -110,8 +117,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                         value: value,
                         max: max,
                         activeColor: _vibrant,
-                        onChanged: (milliseconds) => notifier.seek(
-                            Duration(milliseconds: milliseconds.round())),
+                        onChanged: (milliseconds) => notifier
+                            .seek(Duration(milliseconds: milliseconds.round())),
                       ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -125,17 +132,24 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
                           IconButton(
-                            tooltip: state.isShuffleEnabled ? 'Desactivar aleatorio' : 'Activar aleatorio',
+                            tooltip: state.isShuffleEnabled
+                                ? 'Desactivar aleatorio'
+                                : 'Activar aleatorio',
                             onPressed: notifier.toggleShuffle,
                             icon: Icon(Icons.shuffle_rounded,
-                                color: state.isShuffleEnabled ? _vibrant : null),
+                                color:
+                                    state.isShuffleEnabled ? _vibrant : null),
                           ),
                           IconButton(
                             tooltip: 'Anterior',
-                            onPressed: state.canGoPrevious ? notifier.previous : null,
-                            icon: const Icon(Icons.skip_previous_rounded, size: 34),
+                            onPressed:
+                                state.canGoPrevious ? notifier.previous : null,
+                            icon: const Icon(Icons.skip_previous_rounded,
+                                size: 34),
                           ),
-                          _LargePlayButton(isPlaying: state.isPlaying, onPressed: notifier.toggle),
+                          _LargePlayButton(
+                              isPlaying: state.isPlaying,
+                              onPressed: notifier.toggle),
                           IconButton(
                             tooltip: 'Siguiente',
                             onPressed: state.canGoNext ? notifier.next : null,
@@ -148,7 +162,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                               state.repeatMode == PlaybackRepeatMode.one
                                   ? Icons.repeat_one_rounded
                                   : Icons.repeat_rounded,
-                              color: state.repeatMode == PlaybackRepeatMode.off ? null : _vibrant,
+                              color: state.repeatMode == PlaybackRepeatMode.off
+                                  ? null
+                                  : _vibrant,
                             ),
                           ),
                         ],
@@ -181,11 +197,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                             leading: ArtworkImage(
                                 song: queueSong, size: 48, radius: 8),
                             title: Text(queueSong.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis),
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
                             subtitle: Text(queueSong.artist,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis),
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
                             selected: index == state.queueIndex,
                             onTap: () => notifier.playQueueItem(index),
                           );
@@ -201,9 +215,26 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     );
   }
 
+  Future<void> _showEqualizer(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => _EqualizerSheet(
+        bands: ref.read(playerProvider).equalizerBands,
+        onChanged: (index, gain) =>
+            ref.read(playerProvider.notifier).setEqualizerBand(index, gain),
+        onReset: () => ref.read(playerProvider.notifier).resetEqualizer(),
+        onPreset: (name) =>
+            ref.read(playerProvider.notifier).applyEqualizerPreset(name),
+      ),
+    );
+  }
+
   void _loadPalette(SongEntity song) {
     final path = song.artworkPath;
-    if (path == null || path == _palettePath || !File(path).existsSync()) return;
+    if (path == null || path == _palettePath || !File(path).existsSync()) {
+      return;
+    }
     _palettePath = path;
     Future<void>(() async {
       final palette = await PaletteGenerator.fromImageProvider(
@@ -220,8 +251,162 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   }
 }
 
+class _EqualizerSheet extends StatefulWidget {
+  const _EqualizerSheet({
+    required this.bands,
+    required this.onChanged,
+    required this.onReset,
+    required this.onPreset,
+  });
+
+  final List<double> bands;
+  final Future<void> Function(int index, double gain) onChanged;
+  final Future<void> Function() onReset;
+  final Future<void> Function(String name) onPreset;
+
+  @override
+  State<_EqualizerSheet> createState() => _EqualizerSheetState();
+}
+
+class _EqualizerSheetState extends State<_EqualizerSheet> {
+  late List<double> _bands;
+  String _selectedPreset = 'Personalizado';
+
+  @override
+  void initState() {
+    super.initState();
+    _bands = List<double>.of(widget.bands);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.equalizer_rounded, color: colorScheme.primary),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text('Ecualizador',
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                ),
+                TextButton.icon(
+                  onPressed: () async {
+                    await widget.onReset();
+                    if (mounted) {
+                      setState(() {
+                        _selectedPreset = 'Plano';
+                        _bands = List<double>.filled(
+                            equalizerBandFrequencies.length, 0);
+                      });
+                    }
+                  },
+                  icon: const Icon(Icons.restart_alt_rounded),
+                  label: const Text('Plano'),
+                ),
+              ],
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _presetChip('Personalizado', Icons.tune_rounded),
+                  _presetChip('Pop', Icons.mic_external_on_rounded),
+                  _presetChip('Rock', Icons.electric_bolt_rounded),
+                  _presetChip('Jazz', Icons.piano_rounded),
+                  _presetChip('Clásica', Icons.music_note_rounded),
+                  _presetChip('Bass Boost', Icons.graphic_eq_rounded),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 190,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children:
+                    List.generate(equalizerBandFrequencies.length, (index) {
+                  final frequency = equalizerBandFrequencies[index];
+                  final label = frequency >= 1000
+                      ? '${(frequency / 1000).toStringAsFixed(frequency % 1000 == 0 ? 0 : 1)}k'
+                      : '$frequency';
+                  return Column(
+                    children: [
+                      Text('${_bands[index].toStringAsFixed(1)} dB',
+                          style: Theme.of(context).textTheme.labelSmall),
+                      Expanded(
+                        child: RotatedBox(
+                          quarterTurns: 3,
+                          child: Slider(
+                            min: -12,
+                            max: 12,
+                            divisions: 48,
+                            value: _bands[index],
+                            activeColor: colorScheme.primary,
+                            onChanged: (value) {
+                              setState(() {
+                                _bands[index] = value;
+                                _selectedPreset = 'Personalizado';
+                              });
+                              widget.onChanged(index, value);
+                            },
+                          ),
+                        ),
+                      ),
+                      Text('$label Hz',
+                          style: Theme.of(context).textTheme.labelSmall),
+                    ],
+                  );
+                }),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text('Ajuste de -12 dB a +12 dB',
+                style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _presetChip(String name, IconData icon) {
+    final selected = _selectedPreset == name;
+    return AnimatedScale(
+      scale: selected ? 1 : .96,
+      duration: const Duration(milliseconds: 180),
+      child: ChoiceChip(
+        selected: selected,
+        avatar: Icon(icon, size: 17),
+        label: Text(name),
+        onSelected: (_) async {
+          if (name == 'Personalizado') {
+            setState(() => _selectedPreset = name);
+            return;
+          }
+          final preset = equalizerPresets[name]!;
+          setState(() {
+            _selectedPreset = name;
+            _bands = List<double>.of(preset);
+          });
+          await widget.onPreset(name);
+        },
+      ),
+    );
+  }
+}
+
 class ArtworkImage extends StatelessWidget {
-  const ArtworkImage({required this.song, required this.size, this.radius = 12, super.key});
+  const ArtworkImage(
+      {required this.song, required this.size, this.radius = 12, super.key});
 
   final SongEntity song;
   final double size;
@@ -233,22 +418,24 @@ class ArtworkImage extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: path != null && File(path).existsSync()
-            ? Image.file(
+          ? Image.file(
               File(path),
               width: size,
               height: size,
               fit: BoxFit.cover,
               cacheWidth:
-                (size * MediaQuery.devicePixelRatioOf(context)).round(),
+                  (size * MediaQuery.devicePixelRatioOf(context)).round(),
               cacheHeight:
-                (size * MediaQuery.devicePixelRatioOf(context)).round(),
+                  (size * MediaQuery.devicePixelRatioOf(context)).round(),
               filterQuality: FilterQuality.low,
             )
           : Container(
               width: size,
               height: size,
-              decoration: BoxDecoration(gradient: AppTheme.primaryGradient(context)),
-              child: Icon(Icons.music_note_rounded, size: size * .22, color: Colors.white),
+              decoration:
+                  BoxDecoration(gradient: AppTheme.primaryGradient(context)),
+              child: Icon(Icons.music_note_rounded,
+                  size: size * .22, color: Colors.white),
             ),
     );
   }
@@ -285,7 +472,8 @@ Future<void> showNowPlaying(BuildContext context) => Navigator.of(context).push(
       ),
     );
 
-Future<void> showPlayerQueue(BuildContext context) => showModalBottomSheet<void>(
+Future<void> showPlayerQueue(BuildContext context) =>
+    showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (_) => const _NowPlayingQueueSheet(),
@@ -346,10 +534,12 @@ class NowPlayingSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final song = state.currentSong;
     if (song == null) return const SizedBox.shrink();
-    final notifier = ProviderScope.containerOf(context).read(playerProvider.notifier);
+    final notifier =
+        ProviderScope.containerOf(context).read(playerProvider.notifier);
     final durationMs = state.duration.inMilliseconds;
     final max = durationMs > 0 ? durationMs.toDouble() : 1.0;
-    final value = state.position.inMilliseconds.clamp(0, max.toInt()).toDouble();
+    final value =
+        state.position.inMilliseconds.clamp(0, max.toInt()).toDouble();
 
     return ColoredBox(
       color: AppColors.surface,
@@ -360,68 +550,91 @@ class NowPlayingSidebar extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('REPRODUCIENDO AHORA', style: TextStyle(
-                  fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
+              const Text('REPRODUCIENDO AHORA',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.2)),
               const SizedBox(height: 16),
-              Center(child: Hero(tag: nowPlayingArtworkHeroTag,
-                  child: ArtworkImage(song: song, size: 220, radius: 16))),
+              Center(
+                  child: Hero(
+                      tag: nowPlayingArtworkHeroTag,
+                      child: ArtworkImage(song: song, size: 220, radius: 16))),
               const SizedBox(height: 16),
-              Text(song.title, maxLines: 2, overflow: TextOverflow.ellipsis,
+              Text(song.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium),
               Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
               const SizedBox(height: 8),
-              Slider(value: value, max: max,
-                  onChanged: (value) => notifier.seek(
-                      Duration(milliseconds: value.round()))),
+              Slider(
+                  value: value,
+                  max: max,
+                  onChanged: (value) =>
+                      notifier.seek(Duration(milliseconds: value.round()))),
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                 Text(_formatDuration(state.position)),
                 Text(_formatDuration(state.duration)),
               ]),
               Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                IconButton(onPressed: state.canGoPrevious ? onPrevious : null,
+                IconButton(
+                    onPressed: state.canGoPrevious ? onPrevious : null,
                     icon: const Icon(Icons.skip_previous_rounded, size: 30)),
-                _LargePlayButton(isPlaying: state.isPlaying, onPressed: onToggle),
-                IconButton(onPressed: state.canGoNext ? onNext : null,
+                _LargePlayButton(
+                    isPlaying: state.isPlaying, onPressed: onToggle),
+                IconButton(
+                    onPressed: state.canGoNext ? onNext : null,
                     icon: const Icon(Icons.skip_next_rounded, size: 30)),
               ]),
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                IconButton(onPressed: onToggleShuffle, icon: Icon(Icons.shuffle_rounded,
-                    color: state.isShuffleEnabled
-                        ? Theme.of(context).colorScheme.primary : null)),
-                IconButton(onPressed: onToggleRepeat, icon: Icon(
-                    state.repeatMode == PlaybackRepeatMode.one
-                        ? Icons.repeat_one_rounded : Icons.repeat_rounded,
-                    color: state.repeatMode == PlaybackRepeatMode.off
-                        ? null : Theme.of(context).colorScheme.primary)),
-                IconButton(onPressed: () => showPlayerQueue(context),
+                IconButton(
+                    onPressed: onToggleShuffle,
+                    icon: Icon(Icons.shuffle_rounded,
+                        color: state.isShuffleEnabled
+                            ? Theme.of(context).colorScheme.primary
+                            : null)),
+                IconButton(
+                    onPressed: onToggleRepeat,
+                    icon: Icon(
+                        state.repeatMode == PlaybackRepeatMode.one
+                            ? Icons.repeat_one_rounded
+                            : Icons.repeat_rounded,
+                        color: state.repeatMode == PlaybackRepeatMode.off
+                            ? null
+                            : Theme.of(context).colorScheme.primary)),
+                IconButton(
+                    onPressed: () => showPlayerQueue(context),
                     icon: const Icon(Icons.queue_music_rounded)),
               ]),
               const Divider(height: 24),
               Row(children: [
                 const Icon(Icons.queue_music_rounded, size: 18),
                 const SizedBox(width: 8),
-                Text('Siguiente', style: Theme.of(context).textTheme.titleSmall),
+                Text('Siguiente',
+                    style: Theme.of(context).textTheme.titleSmall),
               ]),
               const SizedBox(height: 8),
-              Expanded(child: state.queue.isEmpty
-                  ? const Center(child: Text('La cola está vacía'))
-                  : ListView.builder(
-                      itemCount: state.queue.length,
-                      itemBuilder: (context, index) {
-                        final queueSong = state.queue[index];
-                        return ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          leading: ArtworkImage(song: queueSong, size: 42, radius: 6),
-                          title: Text(queueSong.title, maxLines: 1,
-                              overflow: TextOverflow.ellipsis),
-                          subtitle: Text(queueSong.artist, maxLines: 1,
-                              overflow: TextOverflow.ellipsis),
-                          selected: index == state.queueIndex,
-                          onTap: () => notifier.playQueueItem(index),
-                        );
-                      },
-                    )),
+              Expanded(
+                  child: state.queue.isEmpty
+                      ? const Center(child: Text('La cola está vacía'))
+                      : ListView.builder(
+                          itemCount: state.queue.length,
+                          itemBuilder: (context, index) {
+                            final queueSong = state.queue[index];
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: ArtworkImage(
+                                  song: queueSong, size: 42, radius: 6),
+                              title: Text(queueSong.title,
+                                  maxLines: 1, overflow: TextOverflow.ellipsis),
+                              subtitle: Text(queueSong.artist,
+                                  maxLines: 1, overflow: TextOverflow.ellipsis),
+                              selected: index == state.queueIndex,
+                              onTap: () => notifier.playQueueItem(index),
+                            );
+                          },
+                        )),
             ],
           ),
         ),

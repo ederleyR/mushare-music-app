@@ -14,7 +14,14 @@ import 'tables.dart';
 part 'app_database.g.dart';
 
 @DriftDatabase(
-  tables: [Songs, LyricsCache, Playlists, PlaylistSongs, Favorites, PlayHistory],
+  tables: [
+    Songs,
+    LyricsCache,
+    Playlists,
+    PlaylistSongs,
+    Favorites,
+    PlayHistory
+  ],
 )
 class AppDatabase extends _$AppDatabase {
   // Se le pasa la conexión desde afuera (ver _openConnection abajo),
@@ -23,13 +30,24 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onUpgrade: (m, from, to) async {
           if (from < 2) await m.addColumn(songs, songs.isHidden);
           if (from < 3) await m.createTable(lyricsCache);
+          if (from < 4) {
+            final columns = await m.database
+                .customSelect('PRAGMA table_info(playlists)')
+                .get();
+            final hasCoverPath = columns.any(
+              (row) => row.read<String>('name') == 'cover_path',
+            );
+            if (!hasCoverPath) {
+              await m.addColumn(playlists, playlists.coverPath);
+            }
+          }
         },
       );
 
@@ -60,8 +78,17 @@ class AppDatabase extends _$AppDatabase {
         );
   }
 
-  Future<int> insertSong(SongsCompanion song) {
-    return into(songs).insertOnConflictUpdate(song);
+  Future<int> insertSong(SongsCompanion song) async {
+    final filePath = song.filePath.value;
+    final existing = await (select(songs)
+          ..where((row) => row.filePath.equals(filePath)))
+        .getSingleOrNull();
+    if (existing != null) {
+      await (update(songs)..where((row) => row.id.equals(existing.id)))
+          .write(song);
+      return existing.id;
+    }
+    return into(songs).insert(song);
   }
 
   Future<LyricsCacheData?> getCachedLyrics(String filePath) {
@@ -75,12 +102,12 @@ class AppDatabase extends _$AppDatabase {
     String? syncedLyrics,
   }) async {
     await into(lyricsCache).insertOnConflictUpdate(
-          LyricsCacheCompanion.insert(
-            filePath: filePath,
-            plainLyrics: Value(plainLyrics),
-            syncedLyrics: Value(syncedLyrics),
-          ),
-        );
+      LyricsCacheCompanion.insert(
+        filePath: filePath,
+        plainLyrics: Value(plainLyrics),
+        syncedLyrics: Value(syncedLyrics),
+      ),
+    );
   }
 
   /// Busca la misma obra musical aunque haya llegado desde otro dispositivo
@@ -118,8 +145,26 @@ class AppDatabase extends _$AppDatabase {
         .watch();
   }
 
-  Future<int> createPlaylist(String name) {
-    return into(playlists).insert(PlaylistsCompanion.insert(name: name));
+  Future<int> createPlaylist(String name, {String? coverPath}) {
+    return into(playlists).insert(PlaylistsCompanion.insert(
+      name: name,
+      coverPath: Value(coverPath),
+    ));
+  }
+
+  Future<void> updatePlaylistCover(int playlistId, String? coverPath) {
+    return (update(playlists)
+          ..where((playlist) => playlist.id.equals(playlistId)))
+        .write(PlaylistsCompanion(coverPath: Value(coverPath)));
+  }
+
+  Future<void> updatePlaylist(int playlistId, String name, String? coverPath) {
+    return (update(playlists)
+          ..where((playlist) => playlist.id.equals(playlistId)))
+        .write(PlaylistsCompanion(
+      name: Value(name),
+      coverPath: Value(coverPath),
+    ));
   }
 
   Future<void> deletePlaylist(int playlistId) {
@@ -161,7 +206,8 @@ class AppDatabase extends _$AppDatabase {
   Future<void> removeSongFromPlaylist(int playlistId, int songId) {
     return (delete(playlistSongs)
           ..where((entry) =>
-              entry.playlistId.equals(playlistId) & entry.songId.equals(songId)))
+              entry.playlistId.equals(playlistId) &
+              entry.songId.equals(songId)))
         .go();
   }
 
@@ -174,6 +220,12 @@ class AppDatabase extends _$AppDatabase {
       'UPDATE songs SET play_count = play_count + 1 WHERE id = ?',
       variables: [Variable<int>(songId)],
       updates: {songs},
+    );
+  }
+
+  Future<void> updateSongArtwork(int songId, String artworkPath) {
+    return (update(songs)..where((song) => song.id.equals(songId))).write(
+      SongsCompanion(artworkPath: Value(artworkPath)),
     );
   }
 

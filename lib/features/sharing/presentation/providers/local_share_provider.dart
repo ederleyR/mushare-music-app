@@ -23,6 +23,7 @@ class LocalDevice {
     required this.address,
     required this.port,
     required this.lastSeen,
+    this.profileImageUri,
   });
 
   final String id;
@@ -31,6 +32,7 @@ class LocalDevice {
   final InternetAddress address;
   final int port;
   final DateTime lastSeen;
+  final Uri? profileImageUri;
 }
 
 class IncomingTransfer {
@@ -45,6 +47,7 @@ class IncomingTransfer {
     required this.isPlaylist,
     required this.itemCount,
     this.coverUri,
+    this.senderImageUri,
   });
 
   final String id;
@@ -57,6 +60,7 @@ class IncomingTransfer {
   final bool isPlaylist;
   final int itemCount;
   final Uri? coverUri;
+  final Uri? senderImageUri;
 }
 
 class TransferProgress {
@@ -74,6 +78,18 @@ class TransferProgress {
 
   double get fraction => totalBytes <= 0 ? 0 : receivedBytes / totalBytes;
 }
+
+class TransferCancellation {
+  bool isCancelled = false;
+  HttpClient? _client;
+
+  void cancel() {
+    isCancelled = true;
+    _client?.close(force: true);
+  }
+}
+
+class _TransferCancelled implements Exception {}
 
 class LocalShareState {
   const LocalShareState({
@@ -93,7 +109,8 @@ class LocalShareState {
     List<LocalDevice>? devices,
     List<IncomingTransfer>? incomingTransfers,
     String? error,
-  }) => LocalShareState(
+  }) =>
+      LocalShareState(
         isRunning: isRunning ?? this.isRunning,
         devices: devices ?? this.devices,
         incomingTransfers: incomingTransfers ?? this.incomingTransfers,
@@ -106,11 +123,13 @@ class _OutgoingTransfer {
     required this.title,
     required this.isPlaylist,
     required this.songs,
+    this.coverPath,
   });
 
   final String title;
   final bool isPlaylist;
   final List<SongEntity> songs;
+  final String? coverPath;
 }
 
 final localShareProvider =
@@ -122,7 +141,8 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
   LocalShareNotifier(this._library) : super(const LocalShareState());
 
   final LibraryRepository _library;
-  final String _id = '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 32)}';
+  final String _id =
+      '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 32)}';
   final Map<String, _OutgoingTransfer> _outgoing = {};
   final Map<String, LocalDevice> _devices = {};
   HttpServer? _server;
@@ -132,10 +152,13 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
   Timer? _cleanupTimer;
   String _userName = 'Usuario';
   String _deviceName = Platform.localHostname;
+  String? _profileImagePath;
 
-  Future<void> start({required String userName}) async {
+  Future<void> start(
+      {required String userName, String? profileImagePath}) async {
     _userName = userName.trim().isEmpty ? 'Usuario' : userName.trim();
     _deviceName = Platform.localHostname;
+    _profileImagePath = profileImagePath;
     if (_server != null) {
       _announce();
       return;
@@ -151,8 +174,10 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
       );
       _socket!.joinMulticast(InternetAddress(_multicastAddress));
       _socketSubscription = _socket!.listen(_onSocketEvent);
-      _announceTimer = Timer.periodic(const Duration(seconds: 4), (_) => _announce());
-      _cleanupTimer = Timer.periodic(const Duration(seconds: 10), (_) => _removeOfflineDevices());
+      _announceTimer =
+          Timer.periodic(const Duration(seconds: 4), (_) => _announce());
+      _cleanupTimer = Timer.periodic(
+          const Duration(seconds: 10), (_) => _removeOfflineDevices());
       state = state.copyWith(isRunning: true, error: null);
       _announce();
     } catch (error) {
@@ -166,7 +191,8 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
     Datagram? datagram;
     while ((datagram = _socket?.receive()) != null) {
       try {
-        final message = jsonDecode(utf8.decode(datagram!.data)) as Map<String, dynamic>;
+        final message =
+            jsonDecode(utf8.decode(datagram!.data)) as Map<String, dynamic>;
         if (message['senderId'] == _id) continue;
         switch (message['type']) {
           case 'mushare-discovery':
@@ -191,17 +217,30 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
       address: address,
       port: port,
       lastSeen: DateTime.now(),
+      profileImageUri: message['hasProfileImage'] == true
+          ? Uri(
+              scheme: 'http',
+              host: address.address,
+              port: port,
+              path: '/mushare/profile/$id',
+            )
+          : null,
     );
     _publishDevices();
   }
 
-  void _registerIncomingTransfer(Map<String, dynamic> message, InternetAddress address) {
+  void _registerIncomingTransfer(
+      Map<String, dynamic> message, InternetAddress address) {
     if (message['targetId'] != _id) return;
     final id = message['offerId'] as String?;
     final token = message['token'] as String?;
     final port = message['port'] as int?;
-    if (id == null || token == null || port == null ||
-        state.incomingTransfers.any((transfer) => transfer.id == id)) return;
+    if (id == null ||
+        token == null ||
+        port == null ||
+        state.incomingTransfers.any((transfer) => transfer.id == id)) {
+      return;
+    }
     final transfer = IncomingTransfer(
       id: id,
       senderName: message['userName'] as String? ?? 'Usuario',
@@ -212,16 +251,28 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
       title: message['title'] as String? ?? 'Contenido musical',
       isPlaylist: message['isPlaylist'] == true,
       itemCount: message['itemCount'] as int? ?? 1,
-      coverUri: message['coverIndex'] is int
+      senderImageUri: message['hasProfileImage'] == true
           ? Uri(
               scheme: 'http',
               host: address.address,
               port: port,
-              path: '/mushare/artwork/$token/${message['coverIndex']}',
+              path: '/mushare/profile/${message['senderId']}',
             )
           : null,
+      coverUri:
+          message['hasPlaylistCover'] == true || message['coverIndex'] is int
+              ? Uri(
+                  scheme: 'http',
+                  host: address.address,
+                  port: port,
+                  path: message['hasPlaylistCover'] == true
+                      ? '/mushare/playlist-cover/$token'
+                      : '/mushare/artwork/$token/${message['coverIndex']}',
+                )
+              : null,
     );
-    state = state.copyWith(incomingTransfers: [...state.incomingTransfers, transfer]);
+    state = state
+        .copyWith(incomingTransfers: [...state.incomingTransfers, transfer]);
   }
 
   void _announce() => _broadcast({
@@ -230,6 +281,8 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
         'userName': _userName,
         'deviceName': _deviceName,
         'port': _server?.port,
+        'hasProfileImage':
+            _profileImagePath != null && File(_profileImagePath!).existsSync(),
       });
 
   Future<void> shareSong(LocalDevice device, SongEntity song) =>
@@ -239,68 +292,106 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
     LocalDevice device,
     PlaylistEntity playlist,
     List<SongEntity> songs,
-  ) => _offer(device, title: playlist.name, songs: songs, isPlaylist: true);
+  ) =>
+      _offer(
+        device,
+        title: playlist.name,
+        songs: songs,
+        isPlaylist: true,
+        coverPath: playlist.coverPath,
+      );
 
   Future<void> _offer(
     LocalDevice device, {
     required String title,
     required List<SongEntity> songs,
     required bool isPlaylist,
+    String? coverPath,
   }) async {
     if (songs.isEmpty) {
-      state = state.copyWith(error: 'La playlist no tiene canciones para enviar.');
+      state =
+          state.copyWith(error: 'La playlist no tiene canciones para enviar.');
       return;
     }
-    final unavailable = songs.where((song) => !File(song.filePath).existsSync());
+    final unavailable =
+        songs.where((song) => !File(song.filePath).existsSync());
     if (unavailable.isNotEmpty) {
-      state = state.copyWith(error: 'Una o más canciones ya no están disponibles en este dispositivo.');
+      state = state.copyWith(
+          error:
+              'Una o más canciones ya no están disponibles en este dispositivo.');
       return;
     }
-    final token = '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 32)}';
-    _outgoing[token] = _OutgoingTransfer(title: title, isPlaylist: isPlaylist, songs: songs);
+    final token =
+        '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 32)}';
+    final hasPlaylistCover =
+        isPlaylist && coverPath != null && await File(coverPath).exists();
+    _outgoing[token] = _OutgoingTransfer(
+      title: title,
+      isPlaylist: isPlaylist,
+      songs: songs,
+      coverPath: hasPlaylistCover ? coverPath : null,
+    );
     final coverIndex = songs.indexWhere((song) =>
         song.artworkPath != null && File(song.artworkPath!).existsSync());
     _broadcast({
       'type': 'mushare-offer',
       'senderId': _id,
       'targetId': device.id,
-      'offerId': '${_id}-$token',
+      'offerId': '$_id-$token',
       'token': token,
       'userName': _userName,
       'deviceName': _deviceName,
       'port': _server?.port,
+      'hasProfileImage':
+          _profileImagePath != null && File(_profileImagePath!).existsSync(),
       'title': title,
       'isPlaylist': isPlaylist,
       'itemCount': songs.length,
+      'hasPlaylistCover': hasPlaylistCover,
       if (coverIndex >= 0) 'coverIndex': coverIndex,
     });
   }
 
-  Future<void> acceptTransfer(
+  Future<bool> acceptTransfer(
     IncomingTransfer transfer, {
     void Function(TransferProgress progress)? onProgress,
+    TransferCancellation? cancellation,
   }) async {
+    final importedSongIds = <int>[];
+    final downloadedFiles = <File>[];
+    final downloadedArtwork = <File>[];
+    File? downloadedPlaylistCover;
     try {
-      final manifest = await _getJson(transfer.senderAddress, transfer.senderPort,
-          '/mushare/offer/${transfer.token}');
-      final files = (manifest['songs'] as List<dynamic>)
-          .cast<Map<String, dynamic>>();
+      _throwIfCancelled(cancellation);
+      final manifest = await _getJson(transfer.senderAddress,
+          transfer.senderPort, '/mushare/offer/${transfer.token}',
+          cancellation: cancellation);
+      final files =
+          (manifest['songs'] as List<dynamic>).cast<Map<String, dynamic>>();
       final totalBytes = files.fold<int>(
         0,
         (total, data) => total + (data['fileSizeBytes'] as int? ?? 0),
       );
       var receivedBytes = 0;
-      final folder = Directory(path.join((await getApplicationDocumentsDirectory()).path, 'shared_music'));
-      final artworkFolder = Directory(path.join((await getApplicationDocumentsDirectory()).path, 'artwork_cache'));
+      final folder = Directory(path.join(
+          (await getApplicationDocumentsDirectory()).path, 'shared_music'));
+      final artworkFolder = Directory(path.join(
+          (await getApplicationDocumentsDirectory()).path, 'artwork_cache'));
+      final playlistCoverFolder = Directory(path.join(
+          (await getApplicationDocumentsDirectory()).path, 'playlist_covers'));
       await folder.create(recursive: true);
       await artworkFolder.create(recursive: true);
+      await playlistCoverFolder.create(recursive: true);
       final receivedIds = <int>[];
       for (var itemIndex = 0; itemIndex < files.length; itemIndex++) {
+        _throwIfCancelled(cancellation);
         final data = files[itemIndex];
-        final safeName = path.basename(data['fileName'] as String? ?? 'audio.mp3');
+        final safeName =
+            path.basename(data['fileName'] as String? ?? 'audio.mp3');
         final incomingSong = SongEntity(
           filePath: '',
-          title: data['title'] as String? ?? path.basenameWithoutExtension(safeName),
+          title: data['title'] as String? ??
+              path.basenameWithoutExtension(safeName),
           artist: data['artist'] as String? ?? 'Desconocido',
           durationMs: data['durationMs'] as int? ?? 0,
         );
@@ -316,9 +407,10 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
           continue;
         }
         final output = _availablePath(folder, safeName);
+        downloadedFiles.add(output);
         await _download(transfer.senderAddress, transfer.senderPort,
             '/mushare/file/${transfer.token}/${data['index']}', output,
-            onBytes: (count) {
+            cancellation: cancellation, onBytes: (count) {
           receivedBytes += count;
           onProgress?.call(TransferProgress(
             receivedBytes: receivedBytes,
@@ -333,9 +425,12 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
               '${DateTime.now().microsecondsSinceEpoch}-${data['index']}.jpg'));
           try {
             await _download(transfer.senderAddress, transfer.senderPort,
-                '/mushare/artwork/${transfer.token}/${data['index']}', artwork);
+                '/mushare/artwork/${transfer.token}/${data['index']}', artwork,
+                cancellation: cancellation);
             artworkPath = artwork.path;
+            downloadedArtwork.add(artwork);
           } catch (_) {
+            _throwIfCancelled(cancellation);
             // La portada es opcional; la canción sigue siendo válida sin ella.
           }
         }
@@ -347,7 +442,9 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
           format: path.extension(safeName).replaceFirst('.', ''),
           dateAdded: DateTime.now(),
         );
-        receivedIds.add(await _library.importSong(song));
+        final importedId = await _library.importSong(song);
+        receivedIds.add(importedId);
+        importedSongIds.add(importedId);
         onProgress?.call(TransferProgress(
           receivedBytes: receivedBytes,
           totalBytes: totalBytes,
@@ -355,34 +452,79 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
           totalFiles: files.length,
         ));
       }
+      String? playlistCoverPath;
+      if (transfer.isPlaylist && (manifest['hasPlaylistCover'] == true)) {
+        final cover = File(path.join(playlistCoverFolder.path,
+            '${DateTime.now().microsecondsSinceEpoch}-playlist.jpg'));
+        try {
+          await _download(transfer.senderAddress, transfer.senderPort,
+              '/mushare/playlist-cover/${transfer.token}', cover,
+              cancellation: cancellation);
+          playlistCoverPath = cover.path;
+          downloadedPlaylistCover = cover;
+        } catch (_) {
+          _throwIfCancelled(cancellation);
+          // La portada es opcional; la playlist sigue siendo válida sin ella.
+        }
+      }
       if (transfer.isPlaylist) {
-        final playlistId = await _library.createPlaylist(transfer.title);
+        final playlistId = await _library.createPlaylist(transfer.title,
+            coverPath: playlistCoverPath);
         for (final id in receivedIds) {
           await _library.addSongToPlaylist(playlistId, id);
         }
       }
       _removeIncoming(transfer.id);
+      return true;
+    } on _TransferCancelled {
+      for (final id in importedSongIds) {
+        await _library.removeSong(id);
+      }
+      for (final file in [
+        ...downloadedFiles,
+        ...downloadedArtwork,
+        if (downloadedPlaylistCover != null) downloadedPlaylistCover
+      ]) {
+        if (await file.exists()) await file.delete();
+      }
+      _removeIncoming(transfer.id);
+      return false;
     } catch (error) {
       state = state.copyWith(error: 'No se pudo recibir el envío: $error');
+      return false;
     }
+  }
+
+  void _throwIfCancelled(TransferCancellation? cancellation) {
+    if (cancellation?.isCancelled == true) throw _TransferCancelled();
   }
 
   void rejectTransfer(String id) => _removeIncoming(id);
 
   void _removeIncoming(String id) {
     state = state.copyWith(
-      incomingTransfers: state.incomingTransfers.where((item) => item.id != id).toList(),
+      incomingTransfers:
+          state.incomingTransfers.where((item) => item.id != id).toList(),
     );
   }
 
-  Future<Map<String, dynamic>> _getJson(InternetAddress address, int port, String endpoint) async {
+  Future<Map<String, dynamic>> _getJson(
+      InternetAddress address, int port, String endpoint,
+      {TransferCancellation? cancellation}) async {
     final client = HttpClient();
+    cancellation?._client = client;
     try {
-      final request = await client.getUrl(Uri(scheme: 'http', host: address.address, port: port, path: endpoint));
+      _throwIfCancelled(cancellation);
+      final request = await client.getUrl(Uri(
+          scheme: 'http', host: address.address, port: port, path: endpoint));
       final response = await request.close();
-      if (response.statusCode != HttpStatus.ok) throw HttpException('Respuesta ${response.statusCode}');
-      return jsonDecode(await utf8.decodeStream(response)) as Map<String, dynamic>;
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException('Respuesta ${response.statusCode}');
+      }
+      return jsonDecode(await utf8.decodeStream(response))
+          as Map<String, dynamic>;
     } finally {
+      if (cancellation?._client == client) cancellation!._client = null;
       client.close(force: true);
     }
   }
@@ -392,20 +534,28 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
     int port,
     String endpoint,
     File output, {
+    TransferCancellation? cancellation,
     void Function(int bytes)? onBytes,
   }) async {
     final client = HttpClient();
+    cancellation?._client = client;
     try {
-      final request = await client.getUrl(Uri(scheme: 'http', host: address.address, port: port, path: endpoint));
+      _throwIfCancelled(cancellation);
+      final request = await client.getUrl(Uri(
+          scheme: 'http', host: address.address, port: port, path: endpoint));
       final response = await request.close();
-      if (response.statusCode != HttpStatus.ok) throw HttpException('Respuesta ${response.statusCode}');
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException('Respuesta ${response.statusCode}');
+      }
       final sink = output.openWrite();
       await for (final bytes in response) {
+        _throwIfCancelled(cancellation);
         sink.add(bytes);
         onBytes?.call(bytes.length);
       }
       await sink.close();
     } finally {
+      if (cancellation?._client == client) cancellation!._client = null;
       client.close(force: true);
     }
   }
@@ -429,6 +579,17 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
         request.response.statusCode = HttpStatus.notFound;
         return;
       }
+      if (parts[1] == 'profile' && parts.length == 3) {
+        final profilePath = _profileImagePath;
+        final profile = profilePath == null ? null : File(profilePath);
+        if (profile == null || !await profile.exists()) {
+          request.response.statusCode = HttpStatus.notFound;
+        } else {
+          request.response.headers.contentType = ContentType('image', 'jpeg');
+          await profile.openRead().pipe(request.response);
+          return;
+        }
+      }
       final transfer = _outgoing[parts[2]];
       if (transfer == null) {
         request.response.statusCode = HttpStatus.notFound;
@@ -439,6 +600,11 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
         request.response.write(jsonEncode({
           'title': transfer.title,
           'isPlaylist': transfer.isPlaylist,
+          'hasPlaylistCover': transfer.coverPath != null,
+          'hasCover': transfer.coverPath != null ||
+              transfer.songs.any((song) =>
+                  song.artworkPath != null &&
+                  File(song.artworkPath!).existsSync()),
           'songs': List.generate(transfer.songs.length, (index) {
             final song = transfer.songs[index];
             return {
@@ -448,8 +614,10 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
               'album': song.album,
               'durationMs': song.durationMs,
               'fileName': path.basename(song.filePath),
-              'fileSizeBytes': song.fileSizeBytes ?? File(song.filePath).lengthSync(),
-              'hasArtwork': song.artworkPath != null && File(song.artworkPath!).existsSync(),
+              'fileSizeBytes':
+                  song.fileSizeBytes ?? File(song.filePath).lengthSync(),
+              'hasArtwork': song.artworkPath != null &&
+                  File(song.artworkPath!).existsSync(),
             };
           }),
         }));
@@ -467,11 +635,22 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
             return;
           }
         }
+      } else if (parts[1] == 'playlist-cover' && parts.length == 3) {
+        final coverPath = transfer.coverPath;
+        final cover = coverPath == null ? null : File(coverPath);
+        if (cover == null || !await cover.exists()) {
+          request.response.statusCode = HttpStatus.notFound;
+        } else {
+          request.response.headers.contentType = ContentType('image', 'jpeg');
+          await cover.openRead().pipe(request.response);
+          return;
+        }
       } else if (parts[1] == 'artwork' && parts.length == 4) {
         final index = int.tryParse(parts[3]);
-        final artworkPath = index == null || index < 0 || index >= transfer.songs.length
-            ? null
-            : transfer.songs[index].artworkPath;
+        final artworkPath =
+            index == null || index < 0 || index >= transfer.songs.length
+                ? null
+                : transfer.songs[index].artworkPath;
         final artwork = artworkPath == null ? null : File(artworkPath);
         if (artwork == null || !await artwork.exists()) {
           request.response.statusCode = HttpStatus.notFound;
@@ -491,18 +670,27 @@ class LocalShareNotifier extends StateNotifier<LocalShareState> {
   }
 
   void _broadcast(Map<String, dynamic> message) {
-    _socket?.send(utf8.encode(jsonEncode(message)), InternetAddress(_multicastAddress), _discoveryPort);
+    _socket?.send(utf8.encode(jsonEncode(message)),
+        InternetAddress(_multicastAddress), _discoveryPort);
   }
 
   void _removeOfflineDevices() {
-    _devices.removeWhere((_, device) => DateTime.now().difference(device.lastSeen).inSeconds > 12);
+    _devices.removeWhere((_, device) =>
+        DateTime.now().difference(device.lastSeen).inSeconds > 12);
     _publishDevices();
   }
 
   void _publishDevices() => state = state.copyWith(
         devices: _devices.values.toList()
-          ..sort((a, b) => a.userName.toLowerCase().compareTo(b.userName.toLowerCase())),
+          ..sort((a, b) =>
+              a.userName.toLowerCase().compareTo(b.userName.toLowerCase())),
       );
+
+  void retryDiscovery() {
+    _devices.clear();
+    _publishDevices();
+    if (_socket != null) _announce();
+  }
 
   Future<void> stop() async {
     _announceTimer?.cancel();

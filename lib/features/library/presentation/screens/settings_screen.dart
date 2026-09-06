@@ -1,12 +1,83 @@
+import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../../../../core/settings/app_settings.dart';
 import '../../../player/presentation/providers/player_provider.dart';
 import '../../../player/presentation/services/audio_output_service.dart';
 import 'hidden_songs_screen.dart';
+
+class _ProfileAvatar extends StatefulWidget {
+  const _ProfileAvatar({
+    required this.imagePath,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String? imagePath;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  State<_ProfileAvatar> createState() => _ProfileAvatarState();
+}
+
+class _ProfileAvatarState extends State<_ProfileAvatar> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final file = widget.imagePath == null ? null : File(widget.imagePath!);
+    final hasImage = file != null && file.existsSync();
+    return Semantics(
+      button: true,
+      label: 'Cambiar foto de perfil',
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: ClipOval(
+            child: SizedBox(
+              width: 56,
+              height: 56,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  CircleAvatar(
+                    backgroundColor: widget.color,
+                    backgroundImage: hasImage ? FileImage(file) : null,
+                    child: hasImage
+                        ? null
+                        : const Icon(Icons.person_rounded,
+                            color: Colors.white, size: 28),
+                  ),
+                  AnimatedOpacity(
+                    opacity: _isHovered ? 1 : 0,
+                    duration: const Duration(milliseconds: 160),
+                    child: const ColoredBox(
+                      color: Colors.black54,
+                      child: Center(
+                        child: Icon(Icons.edit_rounded,
+                            color: Colors.white, size: 22),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -51,6 +122,39 @@ class SettingsScreen extends ConsumerWidget {
     // El diálogo todavía se está animando al cerrarse; desechar el
     // controlador en el siguiente ciclo evita dependientes activos de Flutter.
     Future<void>.delayed(const Duration(milliseconds: 300), controller.dispose);
+  }
+
+  Future<void> _pickProfileImage(BuildContext context, WidgetRef ref) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true,
+      dialogTitle: 'Selecciona tu foto de perfil',
+    );
+    if (result == null || result.files.isEmpty) return;
+
+    final picked = result.files.single;
+    final directory = Directory(
+        p.join((await getApplicationDocumentsDirectory()).path, 'profile'));
+    await directory.create(recursive: true);
+    final extension =
+        p.extension(picked.name).isEmpty ? '.jpg' : p.extension(picked.name);
+    final target = File(p.join(directory.path,
+        'profile-${DateTime.now().microsecondsSinceEpoch}$extension'));
+    if (picked.path != null) {
+      await File(picked.path!).copy(target.path);
+    } else if (picked.bytes != null) {
+      await target.writeAsBytes(picked.bytes!);
+    } else {
+      return;
+    }
+    final previousPath = ref.read(appSettingsProvider).profileImagePath;
+    await ref
+        .read(appSettingsProvider.notifier)
+        .setProfileImagePath(target.path);
+    if (previousPath != null && previousPath != target.path) {
+      final previousFile = File(previousPath);
+      if (await previousFile.exists()) await previousFile.delete();
+    }
   }
 
   Future<void> _pickCustomColor(BuildContext context, WidgetRef ref) async {
@@ -125,9 +229,10 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 8),
           Card(
             child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: colorScheme.primary,
-                child: const Icon(Icons.person_rounded, color: Colors.white),
+              leading: _ProfileAvatar(
+                imagePath: settings.profileImagePath,
+                color: colorScheme.primary,
+                onTap: () => _pickProfileImage(context, ref),
               ),
               title: const Text('Nombre'),
               subtitle: Text(name),
