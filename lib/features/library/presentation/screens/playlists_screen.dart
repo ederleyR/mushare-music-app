@@ -454,6 +454,15 @@ class _ThemedFallbackArtwork extends StatelessWidget {
       );
 }
 
+/// Header "hero" de la pantalla de detalle de playlist.
+///
+/// Este widget ahora vive DENTRO del área con scroll (ver
+/// [PlaylistDetailScreen], donde se envuelve en un `SliverToBoxAdapter`
+/// dentro de un `CustomScrollView`), por lo que se desplaza junto con la
+/// lista de canciones en vez de quedarse fijo arriba.
+///
+/// También reduce su tamaño (artwork, tipografías y paddings) cuando el
+/// ancho disponible es angosto (pantallas de celular).
 class _PlaylistHeroHeader extends StatelessWidget {
   const _PlaylistHeroHeader({
     required this.playlist,
@@ -481,62 +490,81 @@ class _PlaylistHeroHeader extends StatelessWidget {
             : 'Playlist';
     return _PlaylistHeroPalette(
       artworkPath: artworkPath,
-      child: Container(
+      child: SizedBox(
         width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(24, 10, 24, 18),
         child: LayoutBuilder(
           builder: (context, constraints) {
             final compact = constraints.maxWidth < 560;
+            final artworkSize = compact ? 110.0 : 214.0;
             final artwork = _DetailArtwork(
               path: artworkPath,
               isFavorites: playlist.isFavorites,
-              size: compact ? 178 : 214,
+              size: artworkSize,
             );
             final details = Column(
               crossAxisAlignment: compact
                   ? CrossAxisAlignment.center
                   : CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(typeLabel,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
-                const SizedBox(height: 6),
+                    textAlign: compact ? TextAlign.center : TextAlign.start,
+                    style: (compact
+                            ? Theme.of(context).textTheme.labelMedium
+                            : Theme.of(context).textTheme.labelLarge)
+                        ?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant)),
+                const SizedBox(height: 4),
                 Text(playlist.name,
                     textAlign: compact ? TextAlign.center : TextAlign.start,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context)
-                        .textTheme
-                        .displaySmall
+                    style: (compact
+                            ? Theme.of(context).textTheme.titleLarge
+                            : Theme.of(context).textTheme.displaySmall)
                         ?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 Text('${songs.length} canciones',
-                    style: Theme.of(context).textTheme.bodyMedium),
-                const SizedBox(height: 18),
-                FilledButton.icon(
-                  onPressed: onPlay,
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Reproducir'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: onShuffle,
-                  icon: const Icon(Icons.shuffle_rounded),
-                  label: const Text('Aleatorio'),
+                    style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: onPlay,
+                      icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                      label: const Text('Reproducir'),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: onShuffle,
+                      icon: const Icon(Icons.shuffle_rounded, size: 20),
+                      label: const Text('Aleatorio'),
+                    ),
+                  ],
                 ),
               ],
             );
-            return compact
-                ? Column(
-                    children: [artwork, const SizedBox(height: 18), details])
-                : Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                  compact ? 16 : 24, 8, compact ? 16 : 24, compact ? 12 : 18),
+              child: compact
+                  ? Column(children: [
                       artwork,
-                      const SizedBox(width: 24),
-                      Expanded(child: details),
-                    ],
-                  );
+                      const SizedBox(height: 12),
+                      details,
+                    ])
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        artwork,
+                        const SizedBox(width: 24),
+                        Expanded(child: details),
+                      ],
+                    ),
+            );
           },
         ),
       ),
@@ -691,79 +719,80 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
       body: playlistSongs.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => Center(child: Text('Error: $error')),
-        data: (songs) => songs.isEmpty
-            ? Column(
-                children: [
-                  _PlaylistHeroHeader(
-                    playlist: playlist,
-                    songs: songs,
-                    onPlay: null,
-                    onShuffle: null,
-                  ),
-                  const Expanded(
-                      child: Center(child: Text('Esta playlist está vacía.'))),
-                ],
-              )
-            : Column(
-                children: [
-                  _PlaylistHeroHeader(
-                    playlist: playlist,
-                    songs: songs,
-                    onPlay: () => _playAll(songs),
-                    onShuffle: () => _playShuffled(songs),
-                  ),
-                  if (_selectedSongIds.isNotEmpty &&
-                      !playlist.isFavorites &&
-                      playlist.virtualSongs.isEmpty)
-                    _PlaylistSelectionActions(
-                      count: _selectedSongIds.length,
-                      onCancel: () => setState(_selectedSongIds.clear),
-                      onRemove: () => _confirmRemoveSelected(playlist),
-                    ),
-                  Expanded(
-                    child: ListView.builder(
-                      padding: const EdgeInsets.only(top: 6, bottom: 20),
-                      itemCount: songs.length,
-                      itemBuilder: (context, index) {
-                        final song = songs[index];
-                        return SongTile(
-                            song: song,
-                            isSelected: song.id != null &&
-                                _selectedSongIds.contains(song.id),
-                            onLongPress: playlist.isFavorites ||
-                                    playlist.virtualSongs.isNotEmpty ||
-                                    song.id == null
-                                ? null
-                                : () => _toggleSelected(song.id!),
-                            isPlaying: player.isPlaying &&
-                                player.currentSong?.filePath == song.filePath,
-                            onTap: () async {
-                              if (!playlist.isFavorites &&
-                                  playlist.virtualSongs.isEmpty &&
-                                  _selectedSongIds.isNotEmpty &&
-                                  song.id != null) {
-                                _toggleSelected(song.id!);
-                                return;
-                              }
-                              if (song.id != null) {
-                                await ref
-                                    .read(libraryRepositoryProvider)
-                                    .incrementPlayCount(song.id!);
-                              }
-                              await ref
-                                  .read(playerProvider.notifier)
-                                  .playSong(song, songs);
-                            },
-                            onDeleteTap: playlist.isFavorites ||
-                                    playlist.virtualSongs.isNotEmpty ||
-                                    song.id == null
-                                ? null
-                                : () => _confirmRemoveOne(playlist, song));
-                      },
-                    ),
-                  ),
-                ],
+        data: (songs) => CustomScrollView(
+          // Todo -incluyendo el header hero- vive dentro de este
+          // CustomScrollView, así que el header se desplaza junto con la
+          // lista de canciones en vez de quedar fijo arriba.
+          slivers: [
+            SliverToBoxAdapter(
+              child: _PlaylistHeroHeader(
+                playlist: playlist,
+                songs: songs,
+                onPlay: songs.isEmpty ? null : () => _playAll(songs),
+                onShuffle: songs.isEmpty ? null : () => _playShuffled(songs),
               ),
+            ),
+            if (songs.isEmpty)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(child: Text('Esta playlist está vacía.')),
+              )
+            else ...[
+              if (_selectedSongIds.isNotEmpty &&
+                  !playlist.isFavorites &&
+                  playlist.virtualSongs.isEmpty)
+                SliverToBoxAdapter(
+                  child: _PlaylistSelectionActions(
+                    count: _selectedSongIds.length,
+                    onCancel: () => setState(_selectedSongIds.clear),
+                    onRemove: () => _confirmRemoveSelected(playlist),
+                  ),
+                ),
+              SliverPadding(
+                padding: const EdgeInsets.only(top: 6, bottom: 20),
+                sliver: SliverList.builder(
+                  itemCount: songs.length,
+                  itemBuilder: (context, index) {
+                    final song = songs[index];
+                    return SongTile(
+                        song: song,
+                        isSelected: song.id != null &&
+                            _selectedSongIds.contains(song.id),
+                        onLongPress: playlist.isFavorites ||
+                                playlist.virtualSongs.isNotEmpty ||
+                                song.id == null
+                            ? null
+                            : () => _toggleSelected(song.id!),
+                        isPlaying: player.isPlaying &&
+                            player.currentSong?.filePath == song.filePath,
+                        onTap: () async {
+                          if (!playlist.isFavorites &&
+                              playlist.virtualSongs.isEmpty &&
+                              _selectedSongIds.isNotEmpty &&
+                              song.id != null) {
+                            _toggleSelected(song.id!);
+                            return;
+                          }
+                          if (song.id != null) {
+                            await ref
+                                .read(libraryRepositoryProvider)
+                                .incrementPlayCount(song.id!);
+                          }
+                          await ref
+                              .read(playerProvider.notifier)
+                              .playSong(song, songs);
+                        },
+                        onDeleteTap: playlist.isFavorites ||
+                                playlist.virtualSongs.isNotEmpty ||
+                                song.id == null
+                            ? null
+                            : () => _confirmRemoveOne(playlist, song));
+                  },
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
