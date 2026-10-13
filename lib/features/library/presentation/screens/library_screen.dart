@@ -171,7 +171,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   Widget build(BuildContext context) {
     final songsAsync = ref.watch(songsStreamProvider);
     final scanState = ref.watch(scanNotifierProvider);
-    final playerState = ref.watch(playerProvider);
+    // La posición se actualiza varias veces por segundo. Las filas solo
+    // necesitan saber qué canción está activa, no cada milisegundo de avance.
+    final playerPlayback = ref.watch(playerProvider.select(
+      (state) =>
+          (isPlaying: state.isPlaying, filePath: state.currentSong?.filePath),
+    ));
     final favorites =
         ref.watch(favoritesStreamProvider).valueOrNull ?? const <SongEntity>[];
     final favoriteIds =
@@ -200,156 +205,114 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       }
     });
 
-    // El mini-reproductor flotante ocupa espacio real en pantalla, así
-    // que dejamos espacio extra al final de la lista para que la última
-    // canción no quede tapada detrás de él.
     return Scaffold(
-      body: Column(
-        children: [
-          _LibraryHeader(
-            displayName: displayName,
-            sort: _sort,
-            onSortChanged: (sort) => setState(() => _sort = sort),
-            isMobile: Platform.isAndroid || Platform.isIOS,
-            isScanning: scanState is ScanScanning,
-            onScanPressed: scanState is ScanScanning
-                ? null
-                : () => _handleScan(context, ref),
-            onPickFiles: scanState is ScanScanning
-                ? null
-                : () => _handleScan(context, ref, pickFiles: true),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-            child: TextField(
-              onChanged: (value) => setState(() => _searchQuery = value),
-              decoration: InputDecoration(
-                hintText: 'Buscar canción o artista',
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: _searchQuery.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: 'Limpiar búsqueda',
-                        icon: const Icon(Icons.close_rounded),
-                        onPressed: () => setState(() => _searchQuery = ''),
-                      ),
-                filled: true,
-                fillColor: Theme.of(context)
-                    .colorScheme
-                    .surfaceContainerHighest
-                    .withValues(alpha: 0.35),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide:
-                      BorderSide(color: Theme.of(context).colorScheme.outline),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide:
-                      BorderSide(color: Theme.of(context).colorScheme.outline),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(
-                      color: Theme.of(context).colorScheme.primary, width: 1.5),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-            child: Row(
-              children: [
-                FilterChip(
-                  selected: _onlyFavorites,
-                  avatar: const Icon(Icons.favorite_border_rounded, size: 18),
-                  label: const Text('Favoritas'),
-                  onSelected: (value) => setState(() => _onlyFavorites = value),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  _onlyFavorites ? 'Mostrando favoritas' : 'Toda la biblioteca',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-          if (_selectedSongIds.isNotEmpty)
-            _SelectionActions(
-              count: _selectedSongIds.length,
-              onCancel: () => setState(_selectedSongIds.clear),
-              onHide: _hideSelected,
-              onAddToPlaylist: () => _addSelectedToPlaylist(playlists),
-              onDelete: _deleteSelected,
-            ),
-          Expanded(
-            child: songsAsync.when(
-              data: (songs) {
-                final sortedSongs = _sortSongs(songs)
-                    .where((song) =>
-                        !_onlyFavorites ||
-                        (song.id != null && favoriteIds.contains(song.id)))
-                    .where(_matchesSearch)
-                    .toList(growable: false);
-                if (songs.isEmpty) {
-                  return _EmptyLibraryView(
-                    onScanPressed: () => _handleScan(context, ref),
-                  );
-                }
-                if (sortedSongs.isEmpty) {
-                  return const _NoResultsToast();
-                }
-                return ListView.builder(
-                  padding: const EdgeInsets.only(
-                    top: 4,
-                    bottom: 16,
+      body: songsAsync.when(
+        data: (songs) {
+          final sortedSongs = _sortSongs(songs)
+              .where((song) =>
+                  !_onlyFavorites ||
+                  (song.id != null && favoriteIds.contains(song.id)))
+              .where(_matchesSearch)
+              .toList(growable: false);
+          return CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: _LibraryTopContent(
+                  header: _LibraryHeader(
+                    displayName: displayName,
+                    sort: _sort,
+                    onSortChanged: (sort) => setState(() => _sort = sort),
+                    isMobile: Platform.isAndroid || Platform.isIOS,
+                    isScanning: scanState is ScanScanning,
+                    onScanPressed: scanState is ScanScanning
+                        ? null
+                        : () => _handleScan(context, ref),
+                    onPickFiles: scanState is ScanScanning
+                        ? null
+                        : () => _handleScan(context, ref, pickFiles: true),
                   ),
-                  itemCount: sortedSongs.length,
-                  itemBuilder: (context, index) {
-                    final song = sortedSongs[index];
-                    return SongTile(
-                      song: song,
-                      isSelected:
-                          song.id != null && _selectedSongIds.contains(song.id),
-                      onTap: () => _selectedSongIds.isNotEmpty
-                          ? _toggleSelection(song)
-                          : _playSong(song, sortedSongs),
-                      onLongPress:
-                          song.id == null ? null : () => _toggleSelection(song),
-                      isPlaying: playerState.isPlaying &&
-                          playerState.currentSong?.filePath == song.filePath,
-                      isFavorite:
-                          song.id != null && favoriteIds.contains(song.id),
-                      onFavoriteTap: song.id == null
-                          ? null
-                          : () => ref
-                              .read(libraryRepositoryProvider)
-                              .toggleFavorite(song.id!),
-                      onDeleteTap: song.id == null
-                          ? null
-                          : () => _confirmRemoveSong(context, ref, song),
-                      onAddToPlaylistTap: song.id == null
-                          ? null
-                          : () => _showPlaylistPicker(
-                              context, ref, song, playlists),
-                      onArtworkTap:
-                          song.id == null ? null : () => _addArtwork(song),
-                    );
-                  },
-                );
-              },
-              loading: () => Center(
-                child: CircularProgressIndicator(
-                  color: Theme.of(context).colorScheme.primary,
+                  searchQuery: _searchQuery,
+                  onlyFavorites: _onlyFavorites,
+                  onSearchChanged: (value) =>
+                      setState(() => _searchQuery = value),
+                  onClearSearch: () => setState(() => _searchQuery = ''),
+                  onFavoritesChanged: (value) =>
+                      setState(() => _onlyFavorites = value),
                 ),
               ),
-              error: (err, stack) => Center(
-                child: Text('Error: $err',
-                    style: const TextStyle(color: AppColors.error)),
-              ),
-            ),
+              if (_selectedSongIds.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: _SelectionActions(
+                    count: _selectedSongIds.length,
+                    onCancel: () => setState(_selectedSongIds.clear),
+                    onHide: _hideSelected,
+                    onAddToPlaylist: () => _addSelectedToPlaylist(playlists),
+                    onDelete: _deleteSelected,
+                  ),
+                ),
+              if (songs.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _EmptyLibraryView(
+                    onScanPressed: () => _handleScan(context, ref),
+                  ),
+                )
+              else if (sortedSongs.isEmpty)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _NoResultsToast(),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.only(top: 4, bottom: 16),
+                  sliver: SliverList.builder(
+                    itemCount: sortedSongs.length,
+                    itemBuilder: (context, index) {
+                      final song = sortedSongs[index];
+                      return SongTile(
+                        song: song,
+                        isSelected: song.id != null &&
+                            _selectedSongIds.contains(song.id),
+                        onTap: () => _selectedSongIds.isNotEmpty
+                            ? _toggleSelection(song)
+                            : _playSong(song, sortedSongs),
+                        onLongPress: song.id == null
+                            ? null
+                            : () => _toggleSelection(song),
+                        isPlaying: playerPlayback.isPlaying &&
+                            playerPlayback.filePath == song.filePath,
+                        isFavorite:
+                            song.id != null && favoriteIds.contains(song.id),
+                        onFavoriteTap: song.id == null
+                            ? null
+                            : () => ref
+                                .read(libraryRepositoryProvider)
+                                .toggleFavorite(song.id!),
+                        onDeleteTap: song.id == null
+                            ? null
+                            : () => _confirmRemoveSong(context, ref, song),
+                        onAddToPlaylistTap: song.id == null
+                            ? null
+                            : () => _showPlaylistPicker(
+                                context, ref, song, playlists),
+                        onArtworkTap:
+                            song.id == null ? null : () => _addArtwork(song),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          );
+        },
+        loading: () => Center(
+          child: CircularProgressIndicator(
+            color: Theme.of(context).colorScheme.primary,
           ),
-        ],
+        ),
+        error: (err, stack) => Center(
+          child: Text('Error: $err',
+              style: const TextStyle(color: AppColors.error)),
+        ),
       ),
     );
   }
@@ -748,6 +711,88 @@ class _LibraryHeader extends StatelessWidget {
   }
 }
 
+/// Todo el encabezado de Inicio comparte el mismo scroll que las canciones.
+/// Así no queda una zona fija al subir o bajar la biblioteca.
+class _LibraryTopContent extends StatelessWidget {
+  const _LibraryTopContent({
+    required this.header,
+    required this.searchQuery,
+    required this.onlyFavorites,
+    required this.onSearchChanged,
+    required this.onClearSearch,
+    required this.onFavoritesChanged,
+  });
+
+  final Widget header;
+  final String searchQuery;
+  final bool onlyFavorites;
+  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onClearSearch;
+  final ValueChanged<bool> onFavoritesChanged;
+
+  @override
+  Widget build(BuildContext context) => Column(
+        children: [
+          header,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: TextField(
+              onChanged: onSearchChanged,
+              decoration: InputDecoration(
+                hintText: 'Buscar canción o artista',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: searchQuery.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Limpiar búsqueda',
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: onClearSearch,
+                      ),
+                filled: true,
+                fillColor: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHighest
+                    .withValues(alpha: .35),
+                border: _searchBorder(context),
+                enabledBorder: _searchBorder(context),
+                focusedBorder: _searchBorder(context, focused: true),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+            child: Row(
+              children: [
+                FilterChip(
+                  selected: onlyFavorites,
+                  avatar: const Icon(Icons.favorite_border_rounded, size: 18),
+                  label: const Text('Favoritas'),
+                  onSelected: onFavoritesChanged,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  onlyFavorites ? 'Mostrando favoritas' : 'Toda la biblioteca',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+
+  OutlineInputBorder _searchBorder(BuildContext context,
+          {bool focused = false}) =>
+      OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(
+          color: focused
+              ? Theme.of(context).colorScheme.primary
+              : Theme.of(context).colorScheme.outline,
+          width: focused ? 1.5 : 1,
+        ),
+      );
+}
+
 /// Mini-reproductor flotante: se separa visualmente del resto de la UI
 /// con margen, bordes redondeados y sombra, en vez de una barra pegada
 /// al borde inferior de la pantalla.
@@ -762,7 +807,8 @@ class NowPlayingBar extends StatelessWidget {
       required this.onShowLyrics,
       required this.onSeek,
       required this.onSetVolume,
-      this.onShowQueue});
+      this.onShowQueue,
+      this.onHide});
 
   final PlayerState state;
   final VoidCallback onToggle;
@@ -774,6 +820,7 @@ class NowPlayingBar extends StatelessWidget {
   final ValueChanged<Duration> onSeek;
   final ValueChanged<double> onSetVolume;
   final VoidCallback? onShowQueue;
+  final VoidCallback? onHide;
 
   @override
   Widget build(BuildContext context) {
@@ -790,7 +837,10 @@ class NowPlayingBar extends StatelessWidget {
     return GestureDetector(
       onTap: () => showNowPlaying(context),
       onVerticalDragEnd: (details) {
-        if (details.velocity.pixelsPerSecond.dy < -300) {
+        final verticalVelocity = details.velocity.pixelsPerSecond.dy;
+        if (verticalVelocity > 300 && onHide != null) {
+          onHide!();
+        } else if (verticalVelocity < -300) {
           showNowPlaying(context);
         }
       },
@@ -800,7 +850,9 @@ class NowPlayingBar extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
           child: Container(
             decoration: BoxDecoration(
-              color: AppColors.surfaceElevated,
+              // Debe seguir el tema activo; antes este color era oscuro aun
+              // cuando la aplicación estaba en modo claro.
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(

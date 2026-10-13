@@ -60,7 +60,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
-      scaffoldBackgroundColor: AppColors.background,
+      scaffoldBackgroundColor: Colors.transparent,
 
       colorScheme: ColorScheme.dark(
         primary: primaryColor,
@@ -102,7 +102,7 @@ class AppTheme {
       ),
 
       appBarTheme: AppBarTheme(
-        backgroundColor: AppColors.background,
+        backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         titleTextStyle: GoogleFonts.poppins(
@@ -139,6 +139,49 @@ class AppTheme {
       ),
 
       iconTheme: const IconThemeData(color: AppColors.textPrimary),
+    );
+  }
+
+  static ThemeData light([Color primaryColor = AppColors.primary]) {
+    final baseTextTheme =
+        GoogleFonts.interTextTheme(ThemeData.light().textTheme);
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      scaffoldBackgroundColor: Colors.transparent,
+      colorScheme: ColorScheme.light(
+        primary: primaryColor,
+        secondary: AppColors.accent,
+        surface: const Color(0xFFF8F7FC),
+        error: AppColors.error,
+        onPrimary: Colors.white,
+        onSurface: const Color(0xFF17171D),
+      ),
+      textTheme: baseTextTheme.copyWith(
+        headlineLarge: GoogleFonts.poppins(
+            fontSize: 28,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF17171D)),
+        headlineMedium: GoogleFonts.poppins(
+            fontSize: 22,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF17171D)),
+        titleMedium: GoogleFonts.poppins(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF17171D)),
+      ),
+      appBarTheme: AppBarTheme(
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        titleTextStyle: GoogleFonts.poppins(
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF17171D)),
+      ),
+      sliderTheme: SliderThemeData(
+          activeTrackColor: primaryColor, thumbColor: primaryColor),
     );
   }
 }

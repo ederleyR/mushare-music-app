@@ -80,7 +80,9 @@ class SongTile extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: textTheme.bodyLarge?.copyWith(
                         fontWeight: FontWeight.w600,
-                        color: isPlaying ? primaryColor : AppColors.textPrimary,
+                        color: isPlaying
+                            ? primaryColor
+                            : Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
                     const SizedBox(height: 3),
@@ -204,6 +206,11 @@ class SongTile extends StatelessWidget {
                   width: 52,
                   height: 52,
                   fit: BoxFit.cover,
+                  cacheWidth:
+                      (52 * MediaQuery.devicePixelRatioOf(context)).round(),
+                  cacheHeight:
+                      (52 * MediaQuery.devicePixelRatioOf(context)).round(),
+                  filterQuality: FilterQuality.low,
                 )
               : Container(
                   width: 52,

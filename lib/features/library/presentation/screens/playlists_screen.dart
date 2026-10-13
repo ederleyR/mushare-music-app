@@ -488,88 +488,93 @@ class _PlaylistHeroHeader extends StatelessWidget {
         : isVirtual
             ? 'Colección automática'
             : 'Playlist';
-    return _PlaylistHeroPalette(
-      artworkPath: artworkPath,
-      child: SizedBox(
-        width: double.infinity,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final compact = constraints.maxWidth < 560;
-            final artworkSize = compact ? 110.0 : 214.0;
-            final artwork = _DetailArtwork(
-              path: artworkPath,
-              isFavorites: playlist.isFavorites,
-              size: artworkSize,
-            );
-            final details = Column(
-              crossAxisAlignment: compact
-                  ? CrossAxisAlignment.center
-                  : CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(typeLabel,
-                    textAlign: compact ? TextAlign.center : TextAlign.start,
-                    style: (compact
-                            ? Theme.of(context).textTheme.labelMedium
-                            : Theme.of(context).textTheme.labelLarge)
-                        ?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant)),
-                const SizedBox(height: 4),
-                Text(playlist.name,
-                    textAlign: compact ? TextAlign.center : TextAlign.start,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: (compact
-                            ? Theme.of(context).textTheme.titleLarge
-                            : Theme.of(context).textTheme.displaySmall)
-                        ?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 4),
-                Text('${songs.length} canciones',
-                    style: Theme.of(context).textTheme.bodySmall),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: onPlay,
-                      icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                      label: const Text('Reproducir'),
-                    ),
-                    const SizedBox(width: 8),
-                    OutlinedButton.icon(
-                      onPressed: onShuffle,
-                      icon: const Icon(Icons.shuffle_rounded, size: 20),
-                      label: const Text('Aleatorio'),
-                    ),
-                  ],
-                ),
-              ],
-            );
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                  compact ? 16 : 24, 8, compact ? 16 : 24, compact ? 12 : 18),
-              child: compact
-                  ? Column(children: [
+    final totalDuration = Duration(
+      milliseconds: songs.fold<int>(0, (sum, song) => sum + song.durationMs),
+    );
+    return SizedBox(
+      width: double.infinity,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 560;
+          final artworkSize = compact ? 110.0 : 214.0;
+          final artwork = _DetailArtwork(
+            path: artworkPath,
+            isFavorites: playlist.isFavorites,
+            size: artworkSize,
+          );
+          final details = Column(
+            crossAxisAlignment:
+                compact ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(typeLabel,
+                  textAlign: compact ? TextAlign.center : TextAlign.start,
+                  style: (compact
+                          ? Theme.of(context).textTheme.labelMedium
+                          : Theme.of(context).textTheme.labelLarge)
+                      ?.copyWith(
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 4),
+              Text(playlist.name,
+                  textAlign: compact ? TextAlign.center : TextAlign.start,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: (compact
+                          ? Theme.of(context).textTheme.titleLarge
+                          : Theme.of(context).textTheme.displaySmall)
+                      ?.copyWith(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              Text(
+                  '${songs.length} canciones • ${_playlistDuration(totalDuration)}',
+                  style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FilledButton.icon(
+                    onPressed: onPlay,
+                    icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                    label: const Text('Reproducir'),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: onShuffle,
+                    icon: const Icon(Icons.shuffle_rounded, size: 20),
+                    label: const Text('Aleatorio'),
+                  ),
+                ],
+              ),
+            ],
+          );
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+                compact ? 16 : 24, 8, compact ? 16 : 24, compact ? 12 : 18),
+            child: compact
+                ? Column(children: [
+                    artwork,
+                    const SizedBox(height: 12),
+                    details,
+                  ])
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
                       artwork,
-                      const SizedBox(height: 12),
-                      details,
-                    ])
-                  : Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        artwork,
-                        const SizedBox(width: 24),
-                        Expanded(child: details),
-                      ],
-                    ),
-            );
-          },
-        ),
+                      const SizedBox(width: 24),
+                      Expanded(child: details),
+                    ],
+                  ),
+          );
+        },
       ),
     );
   }
+}
+
+String _playlistDuration(Duration duration) {
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60);
+  return hours > 0 ? '${hours} h ${minutes} min' : '$minutes min';
 }
 
 class _PlaylistHeroPalette extends StatefulWidget {
@@ -702,7 +707,12 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
             : ref.watch(playlistSongsStreamProvider(playlist.id));
     final allSongs =
         ref.watch(songsStreamProvider).valueOrNull ?? const <SongEntity>[];
-    final player = ref.watch(playerProvider);
+    // Evita reconstruir toda la lista de la playlist por cada avance de
+    // milisegundos del reproductor.
+    final playerPlayback = ref.watch(playerProvider.select(
+      (state) =>
+          (isPlaying: state.isPlaying, filePath: state.currentSong?.filePath),
+    ));
     return Scaffold(
       appBar: AppBar(title: const Text(''), actions: [
         if (!playlist.isFavorites && playlist.virtualSongs.isEmpty)
@@ -763,8 +773,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                                 song.id == null
                             ? null
                             : () => _toggleSelected(song.id!),
-                        isPlaying: player.isPlaying &&
-                            player.currentSong?.filePath == song.filePath,
+                        isPlaying: playerPlayback.isPlaying &&
+                            playerPlayback.filePath == song.filePath,
                         onTap: () async {
                           if (!playlist.isFavorites &&
                               playlist.virtualSongs.isEmpty &&

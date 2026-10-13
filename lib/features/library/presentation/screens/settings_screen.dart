@@ -157,6 +157,47 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _pickBackgroundImage(BuildContext context, WidgetRef ref) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true,
+      dialogTitle: 'Selecciona una imagen de fondo',
+    );
+    if (result == null || result.files.isEmpty) return;
+    final picked = result.files.single;
+    final directory = Directory(
+        p.join((await getApplicationDocumentsDirectory()).path, 'backgrounds'));
+    await directory.create(recursive: true);
+    final extension =
+        p.extension(picked.name).isEmpty ? '.jpg' : p.extension(picked.name);
+    final target = File(p.join(directory.path,
+        'background-${DateTime.now().microsecondsSinceEpoch}$extension'));
+    if (picked.path != null) {
+      await File(picked.path!).copy(target.path);
+    } else if (picked.bytes != null) {
+      await target.writeAsBytes(picked.bytes!);
+    } else {
+      return;
+    }
+    final previousPath = ref.read(appSettingsProvider).backgroundImagePath;
+    await ref
+        .read(appSettingsProvider.notifier)
+        .setBackgroundImagePath(target.path);
+    if (previousPath != null && previousPath != target.path) {
+      final previousFile = File(previousPath);
+      if (await previousFile.exists()) await previousFile.delete();
+    }
+  }
+
+  Future<void> _clearBackgroundImage(WidgetRef ref) async {
+    final previousPath = ref.read(appSettingsProvider).backgroundImagePath;
+    await ref.read(appSettingsProvider.notifier).clearBackgroundImage();
+    if (previousPath != null) {
+      final previousFile = File(previousPath);
+      if (await previousFile.exists()) await previousFile.delete();
+    }
+  }
+
   Future<void> _pickCustomColor(BuildContext context, WidgetRef ref) async {
     final initialColor = ref.read(appSettingsProvider).activeColor;
     final color = await showDialog<Color>(
@@ -282,6 +323,55 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 4),
           const Text('Elige el color principal de MuShare.'),
           const SizedBox(height: 12),
+          Card(
+            child: SwitchListTile(
+              secondary: Icon(
+                settings.isDarkMode
+                    ? Icons.dark_mode_rounded
+                    : Icons.light_mode_rounded,
+                color: colorScheme.primary,
+              ),
+              title: const Text('Modo oscuro'),
+              subtitle: Text(
+                  settings.isDarkMode ? 'Interfaz oscura' : 'Interfaz clara'),
+              value: settings.isDarkMode,
+              onChanged: (value) =>
+                  ref.read(appSettingsProvider.notifier).setDarkMode(value),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.wallpaper_rounded),
+              title: const Text('Imagen de fondo'),
+              subtitle: Text(settings.backgroundImagePath == null
+                  ? 'Fondo oscuro predeterminado'
+                  : 'Imagen aplicada con una capa oscura'),
+              trailing: settings.backgroundImagePath == null
+                  ? const Icon(Icons.add_photo_alternate_outlined)
+                  : IconButton(
+                      tooltip: 'Quitar imagen de fondo',
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      onPressed: () => _clearBackgroundImage(ref),
+                    ),
+              onTap: () => _pickBackgroundImage(context, ref),
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (settings.backgroundImagePath != null)
+            Card(
+              child: SwitchListTile(
+                secondary: const Icon(Icons.palette_outlined),
+                title: const Text('Colores según la imagen'),
+                subtitle:
+                    const Text('Ajusta el color principal usando el fondo'),
+                value: settings.adaptAccentToBackground,
+                onChanged: (value) => ref
+                    .read(appSettingsProvider.notifier)
+                    .setAdaptAccentToBackground(value),
+              ),
+            ),
+          if (settings.backgroundImagePath != null) const SizedBox(height: 8),
           ...AppAccent.values.where((accent) => accent != AppAccent.custom).map(
                 (accent) => Card(
                   child: RadioListTile<AppAccent>(

@@ -43,6 +43,8 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
     final profileImagePath = ref.watch(
         appSettingsProvider.select((settings) => settings.profileImagePath));
     final share = ref.watch(localShareProvider);
+    final hasBackground = ref.watch(appSettingsProvider
+        .select((settings) => settings.backgroundImagePath != null));
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _ensureStarted(name, profileImagePath));
 
@@ -58,6 +60,12 @@ class _ShareScreenState extends ConsumerState<ShareScreen> {
           ),
           const SizedBox(height: 18),
           Card(
+            color: hasBackground
+                ? Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHighest
+                    .withValues(alpha: .72)
+                : null,
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(

@@ -123,6 +123,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   Player? _player;
   final LyricsService _lyricsService;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
+  DateTime _lastSystemMediaSyncAt = DateTime.fromMillisecondsSinceEpoch(0);
   Player _ensurePlayer() {
     final existing = _player;
     if (existing != null) return existing;
@@ -137,7 +138,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       }),
       player.stream.position.listen((value) {
         state = state.copyWith(position: value);
-        _syncSystemMedia();
+        _syncSystemMedia(throttlePosition: true);
         if (DateTime.now().difference(_lastSavedAt).inSeconds >= 2) {
           _lastSavedAt = DateTime.now();
           unawaited(_saveLastSession());
@@ -157,11 +158,20 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     return player;
   }
 
-  void _syncSystemMedia() => SystemMediaService.update(
-        song: state.currentSong,
-        isPlaying: state.isPlaying,
-        position: state.position,
-      );
+  void _syncSystemMedia({bool throttlePosition = false}) {
+    final now = DateTime.now();
+    if (throttlePosition &&
+        now.difference(_lastSystemMediaSyncAt) <
+            const Duration(milliseconds: 750)) {
+      return;
+    }
+    _lastSystemMediaSyncAt = now;
+    SystemMediaService.update(
+      song: state.currentSong,
+      isPlaying: state.isPlaying,
+      position: state.position,
+    );
+  }
 
   Future<void> _saveLastSession() async {
     final song = state.currentSong;

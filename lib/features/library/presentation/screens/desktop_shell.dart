@@ -20,6 +20,7 @@ class DesktopShell extends ConsumerStatefulWidget {
 class _DesktopShellState extends ConsumerState<DesktopShell> {
   int _selectedIndex = 0;
   bool _requestedName = false;
+  bool _mobilePlayerHidden = false;
   PlaylistEntity? _openedPlaylist;
 
   Future<void> _askForName() async {
@@ -73,29 +74,20 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
     ];
     final currentPage = pages[_selectedIndex];
     final settings = ref.watch(appSettingsProvider);
-    final playerState = ref.watch(playerProvider);
+    final hasCurrentSong = ref.watch(
+      playerProvider.select((state) => state.currentSong != null),
+    );
     if (settings.isLoaded && settings.displayName == null && !_requestedName) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _askForName());
     }
     final colorScheme = Theme.of(context).colorScheme;
     final isMobile = MediaQuery.sizeOf(context).width < 720;
-    final playerBar = playerState.currentSong == null
+    final playerBar = !hasCurrentSong
         ? null
-        : NowPlayingBar(
-            state: playerState,
-            onToggle: () => ref.read(playerProvider.notifier).toggle(),
-            onPrevious: () => ref.read(playerProvider.notifier).previous(),
-            onNext: () => ref.read(playerProvider.notifier).next(),
-            onToggleShuffle: () =>
-                ref.read(playerProvider.notifier).toggleShuffle(),
-            onToggleRepeat: () =>
-                ref.read(playerProvider.notifier).toggleRepeat(),
-            onShowLyrics: () => showLyricsSheet(context),
-            onSeek: (position) =>
-                ref.read(playerProvider.notifier).seek(position),
-            onSetVolume: (volume) =>
-                ref.read(playerProvider.notifier).setVolume(volume),
-            onShowQueue: () => showPlayerQueue(context),
+        : _PersistentPlayerBar(
+            onHide: isMobile
+                ? () => setState(() => _mobilePlayerHidden = true)
+                : null,
           );
 
     return Scaffold(
@@ -112,13 +104,78 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
                   Expanded(
                     child: currentPage,
                   ),
-                  if (playerBar != null) playerBar,
+                  if (playerBar != null)
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 280),
+                      reverseDuration: const Duration(milliseconds: 220),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      transitionBuilder: (child, animation) {
+                        final slide = Tween<Offset>(
+                          begin: const Offset(0, .28),
+                          end: Offset.zero,
+                        ).animate(animation);
+                        return SizeTransition(
+                          sizeFactor: animation,
+                          axisAlignment: 1,
+                          child: FadeTransition(
+                            opacity: animation,
+                            child:
+                                SlideTransition(position: slide, child: child),
+                          ),
+                        );
+                      },
+                      child: _mobilePlayerHidden
+                          ? SafeArea(
+                              key: const ValueKey('show-player-button'),
+                              top: false,
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                                child: Semantics(
+                                  button: true,
+                                  label: 'Mostrar reproductor',
+                                  child: Material(
+                                    color: Colors.transparent,
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(12),
+                                      onTap: () => setState(
+                                          () => _mobilePlayerHidden = false),
+                                      child: Container(
+                                        width: double.infinity,
+                                        height: 38,
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          border: Border.all(
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: const Icon(
+                                          Icons.keyboard_arrow_up_rounded,
+                                          color: Colors.white,
+                                          size: 28,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            )
+                          : KeyedSubtree(
+                              key: const ValueKey('mini-player'),
+                              child: playerBar,
+                            ),
+                    ),
                 ],
               ),
             )
           : Row(
               children: [
                 NavigationRail(
+                  backgroundColor: Colors.transparent,
                   selectedIndex: _selectedIndex,
                   onDestinationSelected: (index) =>
                       setState(() => _selectedIndex = index),
@@ -169,6 +226,33 @@ class _DesktopShellState extends ConsumerState<DesktopShell> {
                 ),
               ],
             ),
+    );
+  }
+}
+
+/// Solo este widget escucha el avance de reproducción. Así la pantalla que
+/// está abierta no se reconstruye varias veces por segundo.
+class _PersistentPlayerBar extends ConsumerWidget {
+  const _PersistentPlayerBar({this.onHide});
+
+  final VoidCallback? onHide;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(playerProvider);
+    return NowPlayingBar(
+      state: state,
+      onToggle: () => ref.read(playerProvider.notifier).toggle(),
+      onPrevious: () => ref.read(playerProvider.notifier).previous(),
+      onNext: () => ref.read(playerProvider.notifier).next(),
+      onToggleShuffle: () => ref.read(playerProvider.notifier).toggleShuffle(),
+      onToggleRepeat: () => ref.read(playerProvider.notifier).toggleRepeat(),
+      onShowLyrics: () => showLyricsSheet(context),
+      onSeek: (position) => ref.read(playerProvider.notifier).seek(position),
+      onSetVolume: (volume) =>
+          ref.read(playerProvider.notifier).setVolume(volume),
+      onShowQueue: () => showPlayerQueue(context),
+      onHide: onHide,
     );
   }
 }
